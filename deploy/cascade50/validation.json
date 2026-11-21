@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-22",
+  "base_commit": "ae184eb",
+  "policy_sha256": "ea8044022817e99fd2916cbd10e8849904b0264a0dfc77bb702b7972d3589dee",
+  "checks": {
+    "linux_go_vet": "pass; all packages",
+    "linux_go_test_race": "pass; all packages, including unchanged sensor and scanner",
+    "full_recorded_parity": {
+      "source_events": 120000,
+      "cohort_events": 1670,
+      "recorded_http_calls": 2943,
+      "exact_features_requests_decisions": true
+    },
+    "portable_docker_build": "pass; Basal 2.8.1, Laya 0.5.2, pinned Kev llama.cpp image",
+    "real_inference_smoke": {
+      "events": 10,
+      "http_inferences": 24,
+      "early_escalations": 2,
+      "total_escalations": 3,
+      "unresolved": 0,
+      "all_escalations_acknowledged": true
+    }
+  },
+  "limitations": [
+    "Synthetic calibration and smoke data; no real-attack effectiveness claim.",
+    "50% is a soft calibration target, not a hard quota.",
+    "Bundled receiver persists escalations; central analytical AI is not included.",
+    "Runtime live validation performed on Linux ARM64 via Docker Desktop."
+  ]
+}

@@ -1,0 +1,10 @@
+{"time":"2026-11-21T17:31:22+01:00","type":"host_new","ip":"10.64.106.98","new":"02:e0:2e:1e:18:af","source":"passive"}
+{"time":"2026-11-21T17:32:40+01:00","type":"service_new","ip":"10.64.106.98","port":22,"proto":"tcp","source":"passive"}
+{"time":"2026-11-21T17:33:41+01:00","type":"service_changed","ip":"10.64.106.98","port":22,"proto":"tcp","old":"http; server=nginx/1.31.9","new":"http; server=nginx; powered_by=PHP/8.1","banner":{"protocol":"http","server":"nginx"},"source":"passive"}
+{"time":"2026-11-21T17:35:30+01:00","type":"service_silent","ip":"10.64.106.98","port":22,"proto":"tcp","source":"passive"}
+{"time":"2026-11-21T17:36:48+01:00","type":"service_back","ip":"10.64.106.98","port":22,"proto":"tcp","old":"silent","source":"passive"}
+{"time":"2026-11-21T17:48:04+01:00","type":"host_new","ip":"10.64.108.52","new":"02:f6:a9:46:b8:7b","source":"passive"}
+{"time":"2026-11-21T17:48:57+01:00","type":"service_new","ip":"10.64.108.52","port":8080,"proto":"tcp","source":"passive"}
+{"time":"2026-11-21T17:49:27+01:00","type":"service_new","ip":"10.64.108.52","port":8443,"proto":"tcp","source":"passive"}
+{"time":"2026-11-21T17:49:34+01:00","type":"service_closed","ip":"10.64.108.52","port":3389,"proto":"tcp","source":"passive"}
+{"time":"2026-11-21T17:49:49+01:00","type":"service_back","ip":"10.64.108.52","port":80,"proto":"tcp","source":"passive"}

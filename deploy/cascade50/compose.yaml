@@ -1,0 +1,89 @@
+name: asi-cascade50
+x-edge: &edge
+  image: asi-edgegate:cascade50
+  build:
+    context: ../..
+    dockerfile: deploy/cascade50/Dockerfile.edgegate
+  read_only: true
+  tmpfs: [/tmp]
+services:
+  basal:
+    image: asi-basal:cascade50
+    build:
+      context: .
+      dockerfile: Dockerfile.basal
+    read_only: true
+    tmpfs: [/tmp]
+    ports: ["127.0.0.1:18000:8000"]
+    environment:
+      HF_HOME: /tmp/huggingface
+      HF_HUB_OFFLINE: "1"
+      OMP_NUM_THREADS: "4"
+      OPENBLAS_NUM_THREADS: "4"
+    volumes:
+      - type: bind
+        source: ../../models/basal
+        target: /models/basal-omni-pico-GGUF
+        read_only: true
+        bind: {create_host_path: false}
+  laya:
+    image: asi-laya:cascade50
+    build:
+      context: .
+      dockerfile: Dockerfile.laya
+    read_only: true
+    tmpfs: [/tmp]
+    ports: ["127.0.0.1:18001:8000"]
+    environment:
+      HF_HOME: /tmp/huggingface
+      HF_HUB_OFFLINE: "1"
+      USE_TF: "0"
+      LAYA_EXTRA_MODELS: '{"english":"/models/laya"}'
+      LAYA_HOST: 0.0.0.0
+      LAYA_PORT: "8000"
+      LAYA_DEVICE: cpu
+      LAYA_PRELOAD: "1"
+      LAYA_MODELS: english
+      LAYA_THREADS: "4"
+    volumes:
+      - type: bind
+        source: ../../models/laya
+        target: /models/laya
+        read_only: true
+        bind: {create_host_path: false}
+  kev:
+    image: ghcr.io/ggml-org/llama.cpp@sha256:ae28f5c2046de51dfd00c9116a36fe44b5e8703ef730d0aea69082781eecb1f7
+    read_only: true
+    tmpfs: [/tmp]
+    ports: ["127.0.0.1:18008:8000"]
+    volumes:
+      - type: bind
+        source: ../../models/kev
+        target: /models
+        read_only: true
+        bind: {create_host_path: false}
+    command: [-m, /models/Kev-0.8B-Q8_0.gguf, --host, 0.0.0.0, --port, "8000", -c, "2048", -t, "4"]
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:8000/health]
+      start_period: 60s
+  central:
+    <<: *edge
+    command: [receive, -listen, "0.0.0.0:8080", -inbox-dir, /data/inbox]
+    ports: ["127.0.0.1:18080:8080"]
+    volumes: ["central-data:/data"]
+  gate:
+    <<: *edge
+    profiles: [tools]
+    volumes:
+      - ../../deploy/cascade50:/work/deploy/cascade50:ro
+      - ../../models:/work/models:ro
+      - edge-data:/data
+      - type: bind
+        source: ../../var/cascade50
+        target: /input
+        read_only: true
+        bind: {create_host_path: false}
+    command: [gate, -sensor-id, lab, -input, /input/events.jsonl, -follow, -outbox-dir, /data/outbox, -central-url, "http://central:8080/events", -basal-url, "http://basal:8000/v1/systemone", -laya-url, "http://laya:8000/v1/systemone", -kev-url, "http://kev:8000/v1/systemone"]
+volumes:
+  central-data:
+  edge-data:
