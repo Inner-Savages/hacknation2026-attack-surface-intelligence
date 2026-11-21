@@ -3,7 +3,7 @@
 [![CI](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Inner-Savages/silence-on-the-wire/badges/coverage.json)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Inner-Savages/silence-on-the-wire)](go.mod)
-[![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20traffic-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
+[![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20scanner%20%7C%20traffic-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
 [![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-lightgrey)](Dockerfile)
 [![HackNation 2026](https://img.shields.io/badge/HackNation-2026-red)](https://hacknation.pl)
 
@@ -25,8 +25,8 @@ waiting for the next full sweep.
 
 ```
 network traffic ──► [ passive sensor ] ── change events ──► [ active scanner ]
-                     baseline: host,                         nmap + HTTP prober
-                     port, banner                             (in progress)
+                     baseline: host,      (wiring: in progress)  nmap + HTTP prober
+                     port, banner                                + signatures, diff
 ```
 
 ## What works today
@@ -39,11 +39,20 @@ network traffic ──► [ passive sensor ] ── change events ──► [ ac
   | Event | Meaning |
   |---|---|
   | `host_new`, `service_new` | not in the baseline before |
-  | `service_changed` | HTTP banner fingerprint changed (`Server`, `X-Powered-By`, cookie names, ...) |
+  | `service_changed` | HTTP banner fingerprint changed (`Server`, `X-Powered-By`, `X-Env`, ...) |
   | `service_closed` | a SYN was answered with RST: the host is up, the port is closed |
   | `host_silent`, `service_silent` | no traffic for `-silent-after`: maybe gone, maybe just quiet |
   | `host_back`, `service_back` | seen again after closed/silent |
 
+- **Scanner** (`cmd/scanner`): safe discovery scan of IPs, CIDRs (up to /12) and
+  hostnames, split into chunks scanned by parallel nmap processes (`-sT` connect scan by
+  default, `-sV`, rate limit, no NSE scripts or OS detection), with chunk and total
+  durations. Web services are then probed with GET only: status, title, headers, cookie
+  names and flags, same-host redirects, TLS certificate, favicon (Shodan-compatible mmh3
+  hash). YAML signatures recognize technologies with a confidence score (WordPress,
+  phpMyAdmin, Adminer, DVWA, Gitea, RabbitMQ, Traefik, nginx, PHP, databases, SSH, a few
+  IoT devices, plus staging environments, admin panels, setup and default pages).
+  `scanner diff` compares two results: new, gone and changed hosts and services.
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
@@ -62,27 +71,44 @@ make sensor-caps        # builds bin/sensor and grants it only CAP_NET_RAW
 ./bin/sensor -i eth0 -learn 30s > events.jsonl
 ```
 
-Useful flags: `-i br-a,br-b` (several interfaces), `-net` (prefixes to watch; default
+Useful flags: `-i br-a,br-b` or `-i 'br-*'` (several interfaces, globs), `-net` (prefixes to watch; default
 `auto` = subnets of the capture interfaces), `-silent-after`, `-learn`, `-state`
 (baseline file), `-r capture.pcap` (replay), `-f` (BPF filter, `""` = everything).
+
+### Scanner
+
+```bash
+make build
+./bin/scanner -t 10.0.0.0/24 -p 22,80,443,8000-8100 -o scan1.json
+./bin/scanner -t 10.0.0.0/24 -p 22,80,443,8000-8100 -o scan2.json
+./bin/scanner diff scan1.json scan2.json          # -json, -exit-code
+```
+
+Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `-Pn`,
+`-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-chunk` and `-parallel` (chunking),
+`-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
+`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`).
 
 ### Docker images
 
 ```bash
 docker run --rm --network host --cap-drop ALL --cap-add NET_RAW \
   -v sotw-data:/data ghcr.io/inner-savages/silence-on-the-wire/sensor -i eth0
+docker run --rm --network host --user $(id -u):$(id -g) -v "$PWD:/data" \
+  ghcr.io/inner-savages/silence-on-the-wire/scanner -t 127.0.0.1 -Pn -o scan.json
 docker run --rm ghcr.io/inner-savages/silence-on-the-wire/traffic \
   -targets "http://example.internal/ tcp://example.internal:22"
 ```
 
-Images are built by GitHub Actions for `linux/amd64` and `linux/arm64`. The sensor runs
-as an unprivileged user and needs only `CAP_NET_RAW`. `make images` builds them locally
-under the same names.
+Images are built by GitHub Actions for `linux/amd64` and `linux/arm64`. All of them run
+as an unprivileged user; the sensor needs only `CAP_NET_RAW`, the scanner none (connect
+scan). `--user $(id -u):$(id -g)` makes result files belong to you (they are created
+with mode 0600). `make images` builds them locally under the same names.
 
 ### On the CBI AGH lab templates
 
-The organizers' templates are included unchanged in `lab/agh/upstream/` (with their
-permission). The overlay adds traffic, a flapping host and the sensor:
+The organizers' templates are included unchanged in `lab/agh/upstream/`. The overlay
+adds traffic, a flapping host and the sensor:
 
 ```bash
 docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
@@ -93,7 +119,15 @@ docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
 
 `lab/agh/scenario.sh` runs a scripted scenario (banner change, service stop/start, new
 host, flapping service) and prints which event to expect after each step. See
-`lab/agh/README.md`.
+`lab/agh/README.md`. Their own demo works with the scanner too:
+
+```bash
+P=2223,3001,5673,8787,8888,15432,15673
+./bin/scanner -t 127.0.0.1 -p $P -Pn -o scan1.json
+(cd lab/agh/upstream && ./quickstart.sh change)     # stops the service on 8787
+./bin/scanner -t 127.0.0.1 -p $P -Pn -o scan2.json
+./bin/scanner diff scan1.json scan2.json           # - 8787/tcp http nginx ...
+```
 
 ### Own minimal lab
 
@@ -113,8 +147,9 @@ make test     # go vet + go test (needs libpcap-dev)
 ```
 
 Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, baseline),
-`internal/traffic` (probes), `lab/` (test environments), `Dockerfile` (targets `sensor`
-and `traffic`).
+`internal/scan` (targets, chunks, nmap), `internal/probe` (HTTP/TLS), `internal/fingerprint`
+(signatures), `internal/diff`, `internal/result` (shared model), `internal/traffic`,
+`lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `traffic`).
 
 ## Blog
 

@@ -2,6 +2,7 @@
 #
 #   docker build --target sensor  -t ghcr.io/inner-savages/silence-on-the-wire/sensor   .
 #   docker build --target traffic -t ghcr.io/inner-savages/silence-on-the-wire/traffic .
+#   docker build --target scanner -t ghcr.io/inner-savages/silence-on-the-wire/scanner .
 
 FROM golang:1.26 AS build
 RUN apt-get update \
@@ -12,9 +13,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-# The sensor links libpcap (cgo); the traffic generator is fully static.
+# The sensor links libpcap (cgo); the traffic generator and scanner are static.
 RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/sensor ./cmd/sensor \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/traffic ./cmd/traffic
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/traffic ./cmd/traffic \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/scanner ./cmd/scanner
 
 # Passive sensor. Runs as an unprivileged user; the binary carries only the
 # CAP_NET_RAW file capability (the container must allow it: cap_add NET_RAW).
@@ -35,3 +37,17 @@ FROM scratch AS traffic
 COPY --from=build /out/traffic /traffic
 USER 65532:65532
 ENTRYPOINT ["/traffic"]
+
+# Active scanner: nmap (-sT connect scan by default, which needs no
+# privileges) plus our HTTP prober and signatures. Runs unprivileged and
+# writes results to /data. For -sS run with --user 0 --cap-add NET_RAW.
+FROM debian:trixie-slim AS scanner
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends nmap ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir /data && chown 65532:65532 /data
+COPY --from=build /out/scanner /usr/local/bin/scanner
+USER 65532:65532
+WORKDIR /data
+VOLUME /data
+ENTRYPOINT ["scanner"]
