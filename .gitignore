@@ -1,4 +1,3 @@
 bin/
 sensor-state.json
 *.pcap
-lab/agh/upstream/

@@ -41,7 +41,8 @@ network traffic ──► [ passive sensor ] ── change events ──► [ ac
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
 - **Lab overlay for the CBI AGH templates** (`lab/agh/`): adds traffic, an unstable
-  host and the sensor to their `custom-network` stack without modifying their files.
+  host and the sensor to their `custom-network` stack without modifying their files
+  (included in `lab/agh/upstream/`).
 
 ## Quick start
 
@@ -73,18 +74,19 @@ under the same names.
 
 ### On the CBI AGH lab templates
 
-With the organizers' `docker-compose-custom-network.yml` (not included in this repo):
+The organizers' templates are included unchanged in `lab/agh/upstream/` (with their
+permission). The overlay adds traffic, a flapping host and the sensor:
 
 ```bash
-docker compose -f <AGH>/docker-compose-custom-network.yml \
+docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
                -f lab/agh/traffic-custom-network.yml up -d
-docker compose -f <AGH>/docker-compose-custom-network.yml \
+docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
                -f lab/agh/traffic-custom-network.yml logs -f sensor
 ```
 
-`lab/agh/scenario.sh <AGH>/docker-compose-custom-network.yml` runs a scripted scenario
-(banner change, service stop/start, new host, flapping service) and prints which event
-to expect after each step.
+`lab/agh/scenario.sh` runs a scripted scenario (banner change, service stop/start, new
+host, flapping service) and prints which event to expect after each step. See
+`lab/agh/README.md`.
 
 ### Own minimal lab
 

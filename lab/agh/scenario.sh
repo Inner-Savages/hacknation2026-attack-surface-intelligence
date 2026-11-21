@@ -4,14 +4,16 @@
 # i niestabilny host, a przy każdym kroku wypisuje, jakiego zdarzenia się
 # spodziewać.
 #
-#   lab/agh/scenario.sh <AGH>/docker-compose-custom-network.yml
+#   lab/agh/scenario.sh [<AGH>/docker-compose-custom-network.yml]
+#
+# Domyślnie używa szablonu z lab/agh/upstream/ (kopia od CBI AGH).
 #
 # Obrazy silence-on-the-wire/{sensor,traffic} muszą być dostępne (rejestr albo `make images`).
 # Na koniec stack zostaje uruchomiony; zatrzymanie:
-#   docker compose -f <AGH>/docker-compose-custom-network.yml -f lab/agh/traffic-custom-network.yml down
+#   docker compose -f lab/agh/upstream/docker-compose-custom-network.yml -f lab/agh/traffic-custom-network.yml down
 set -euo pipefail
 
-AGH=$(realpath "${1:?użycie: $0 <AGH>/docker-compose-custom-network.yml}")
+AGH=$(realpath "${1:-$(dirname "$0")/upstream/docker-compose-custom-network.yml}")
 OVERLAY=$(realpath "$(dirname "$0")/traffic-custom-network.yml")
 C=(docker compose -f "$AGH" -f "$OVERLAY")
 NET=hacknation-custom-network_backend

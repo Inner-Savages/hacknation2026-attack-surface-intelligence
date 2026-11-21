@@ -1,13 +1,13 @@
 # Nakładka na docker-compose-custom-network.yml z szablonów CBI AGH.
 #
-#   docker compose -f <AGH>/docker-compose-custom-network.yml \
+#   docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
 #                  -f lab/agh/traffic-custom-network.yml up -d
 #   docker compose -f ... -f ... logs -f sensor      # zdarzenia sensora
 #
-# Pliki AGH zostają bez zmian; bez tej nakładki stack działa dokładnie jak u AGH.
-# Nakładka nie używa żadnych lokalnych ścieżek (compose liczy je względem
-# katalogu PIERWSZEGO pliku), tylko gotowych obrazów, więc działa niezależnie
-# od tego, gdzie leżą pliki AGH.
+# Pliki AGH (lab/agh/upstream/) zostają bez zmian; bez tej nakładki stack działa
+# dokładnie jak u AGH. Nakładka nie używa żadnych lokalnych ścieżek (compose liczy
+# je względem katalogu PIERWSZEGO pliku), tylko gotowych obrazów, więc działa też
+# z kopią szablonów trzymaną gdzie indziej.
 #
 # Dodaje:
 #   - stałe nazwy mostów dla sieci frontend/backend (sensor wie, gdzie słuchać),
