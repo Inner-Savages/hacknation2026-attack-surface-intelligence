@@ -11,7 +11,7 @@ Our additions live next to it and never modify the upstream files:
 
 | File | Purpose |
 |---|---|
-| `traffic-custom-network.yml` | compose overlay for `upstream/docker-compose-custom-network.yml`: fixed bridge names, background traffic, a flapping host and the passive sensor |
+| `traffic-custom-network.yml` | compose overlay for `upstream/docker-compose-custom-network.yml`: background traffic, a flapping host and the passive sensor (on every Docker bridge, `-i 'br-*'`); it adds services only and never redefines the organizers' services or networks, so their `quickstart.sh` keeps working |
 | `scenario.sh` | scripted scenario on that stack (banner change, service stop/start, new host, flapper) that prints the expected sensor events |
 
 ```bash

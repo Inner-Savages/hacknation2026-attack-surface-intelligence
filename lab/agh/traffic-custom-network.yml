@@ -9,21 +9,15 @@
 # je względem katalogu PIERWSZEGO pliku), tylko gotowych obrazów, więc działa też
 # z kopią szablonów trzymaną gdzie indziej.
 #
-# Dodaje:
-#   - stałe nazwy mostów dla sieci frontend/backend (sensor wie, gdzie słuchać),
+# Dodaje (wyłącznie nowe usługi; definicji usług i sieci AGH nie zmienia):
 #   - traffic: łagodny ruch w tle (GET-y, połączenia z odczytem bannera), bez logowań,
 #   - flapper: host niestabilny, usługa HTTP działa FLAP_UP s, milczy FLAP_DOWN s,
-#   - sensor: pasywny sensor na obu mostach (sieć hosta, tylko CAP_NET_RAW).
+#   - sensor: pasywny sensor na wszystkich mostach Dockera (`-i 'br-*'`), sieć hosta,
+#     tylko CAP_NET_RAW.
 #
-# Jeśli sieci stacku już istnieją bez tych nazw mostów, najpierw `down`.
-
-networks:
-  frontend:
-    driver_opts:
-      com.docker.network.bridge.name: br-agh-front
-  backend:
-    driver_opts:
-      com.docker.network.bridge.name: br-agh-back
+# Nakładka celowo nie nadaje sieciom AGH własnych nazw mostów: wtedy compose
+# uruchomiony bez nakładki (np. ich quickstart.sh) widzi inną definicję sieci,
+# próbuje ją odtworzyć i psuje działający stack.
 
 services:
   traffic:
@@ -65,7 +59,7 @@ services:
     cap_add: [NET_RAW]
     command:
       - -i
-      - br-agh-front,br-agh-back
+      - br-*
       - -learn
       - ${SENSOR_LEARN:-30s}
       - -silent-after
@@ -73,7 +67,7 @@ services:
     volumes:
       - sensor-data:/data
     # Mosty powstają razem z sieciami stacku; sensor startuje po kontenerach,
-    # które ich używają.
+    # które ich używają, więc wzorzec br-* już je widzi.
     depends_on: [traffic, flapper]
 
 volumes:
