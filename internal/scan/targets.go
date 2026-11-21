@@ -16,6 +16,8 @@ import (
 // (a /12 is ~1M addresses); larger ranges are almost always a typo.
 const MaxExpand = 1 << 20
 
+var numericLabelRe = regexp.MustCompile(`^[0-9-]+$`)
+
 var hostnameRe = regexp.MustCompile(`^(?i:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.(?i:[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?))*$`)
 
 // Targets is a deduplicated, ordered list of scan targets: IP addresses
@@ -54,6 +56,12 @@ func (t *Targets) Add(spec string) error {
 	}
 	if !hostnameRe.MatchString(spec) {
 		return fmt.Errorf("target %q: not an IP, CIDR or hostname", spec)
+	}
+	// A real hostname never has an all-numeric top-level label; such specs
+	// are nmap octet ranges like 10.0.0.1-20, which bypass our expansion,
+	// limits and allow list.
+	if labels := strings.Split(spec, "."); numericLabelRe.MatchString(labels[len(labels)-1]) {
+		return fmt.Errorf("target %q: looks like an nmap range; use a CIDR instead", spec)
 	}
 	t.push(strings.ToLower(spec))
 	return nil

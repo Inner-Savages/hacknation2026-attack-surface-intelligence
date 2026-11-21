@@ -57,6 +57,7 @@ type Service struct {
 	ExtraInfo string   `json:"extra_info,omitempty"`
 	Tunnel    string   `json:"tunnel,omitempty"` // "ssl" when nmap saw TLS
 	CPE       []string `json:"cpe,omitempty"`
+	HTTP      *HTTP    `json:"http,omitempty"` // filled by the HTTP prober for web services
 }
 
 // Duration marshals as a human-readable string ("1m2.5s").

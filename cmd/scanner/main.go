@@ -1,6 +1,6 @@
 // Command scanner runs a safe discovery scan (nmap -sT/-sS -sV, no NSE
-// scripts) over IPs, CIDRs and hostnames, split into parallel chunks, and
-// writes the result as JSON.
+// scripts) over IPs, CIDRs and hostnames, split into parallel chunks, probes
+// the web services it finds and writes the result as JSON.
 //
 //	scanner -t 127.0.0.1 -p 2223,3001,5673,8787,8888,15432,15673 -Pn -o scan.json
 //	scanner -f targets.txt -allow 10.0.0.0/16 -max-rate 300
@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Inner-Savages/silence-on-the-wire/internal/probe"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/scan"
 )
@@ -38,6 +39,9 @@ func main() {
 		chunkSize   = flag.Int("chunk", 256, "targets per nmap process")
 		parallel    = flag.Int("parallel", 4, "concurrent nmap processes")
 		output      = flag.String("o", "", "write the JSON result here (default stdout)")
+		doProbe     = flag.Bool("probe", true, "probe web services found by nmap (GET only: page, same-host redirects, favicon)")
+		probePar    = flag.Int("probe-parallel", 8, "concurrent HTTP probes")
+		probeTO     = flag.Duration("probe-timeout", 10*time.Second, "timeout per HTTP request")
 	)
 	flag.Parse()
 	log.SetFlags(log.Ltime)
@@ -104,6 +108,11 @@ func main() {
 	}
 	if err != nil {
 		log.Printf("scan interrupted: %v (writing partial result)", err)
+	}
+	if *doProbe && ctx.Err() == nil {
+		start := time.Now()
+		n := (&probe.Prober{Timeout: *probeTO}).ProbeScan(ctx, res, *probePar)
+		log.Printf("probed %d web services in %v", n, time.Since(start).Round(time.Millisecond))
 	}
 
 	var w io.Writer = os.Stdout

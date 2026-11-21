@@ -34,7 +34,7 @@ func TestTargetsReader(t *testing.T) {
 }
 
 func TestTargetsRejectsHugeRangesAndJunk(t *testing.T) {
-	for _, s := range []string{"10.0.0.0/8", "fd00::/64", "10.0.0.0/33", "-rf", "a..b", "x;rm"} {
+	for _, s := range []string{"10.0.0.0/8", "fd00::/64", "10.0.0.0/33", "-rf", "a..b", "x;rm", "172.28.0.10-12", "10.0.0.1-255", "999.1.1.1"} {
 		var tg Targets
 		if err := tg.Add(s); err == nil {
 			t.Errorf("%q: expected error", s)
