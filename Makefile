@@ -1,4 +1,12 @@
-.PHONY: build test sensor-caps lab-up lab-down sensor
+.PHONY: build test sensor-caps lab-up lab-down sensor images
+
+IMAGE_PREFIX ?= ghcr.io/inner-savages/silence-on-the-wire
+
+# Obrazy sensora i generatora ruchu, otagowane tak jak w rejestrze, więc
+# nakładki compose używają ich lokalnie bez pobierania.
+images:
+	docker build --target sensor  -t $(IMAGE_PREFIX)/sensor:latest .
+	docker build --target traffic -t $(IMAGE_PREFIX)/traffic:latest .
 
 build:
 	go build -o bin/sensor ./cmd/sensor
