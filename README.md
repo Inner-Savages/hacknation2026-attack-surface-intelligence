@@ -119,4 +119,4 @@ and `traffic`).
 ## Blog
 
 The build process is documented (Polish and English) on
-[q84fh.net](https://q84fh.net/posts/2026-11-21-hacknation-asi-01-lab/).
+[q84fh.net](https://q84fh.net/tags/hacknation2026/).
