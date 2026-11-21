@@ -1,8 +1,9 @@
-// Command sensor passively watches a network interface (or replays a pcap)
+// Command sensor passively watches network interfaces (or replays a pcap)
 // and prints JSON-lines events whenever observed traffic differs from the
 // baseline: new hosts/services, closed or silent ones, changed banners.
 //
-//	sudo ./sensor -i br-asilab -net 172.28.0.0/24 -learn 30s
+//	./sensor -i br-asilab -learn 30s
+//	./sensor -i br-front,br-back -net 172.18.0.0/16
 //	./sensor -r capture.pcap -net 172.28.0.0/24
 package main
 
@@ -14,11 +15,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -33,13 +36,20 @@ type packetSource interface {
 	ReadPacketData() ([]byte, gopacket.CaptureInfo, error)
 }
 
+// capture is one opened packet source (an interface or a pcap file).
+type capture struct {
+	name   string
+	handle *pcap.Handle
+	src    packetSource
+}
+
 func main() {
 	var (
-		iface       = flag.String("i", "", "interface to capture on live (needs CAP_NET_RAW)")
+		ifaces      = flag.String("i", "", "comma-separated interfaces to capture on live (needs CAP_NET_RAW)")
 		pcapFile    = flag.String("r", "", "replay a pcap/pcapng file instead of live capture")
 		filter      = flag.String("f", sensor.DefaultBPF, "BPF filter applied in the kernel (empty = capture everything)")
 		snapLen     = flag.Int("snaplen", sensor.DefaultSnapLen, "bytes captured per packet")
-		nets        = flag.String("net", "172.28.0.0/24", "comma-separated prefixes to watch (empty = all)")
+		nets        = flag.String("net", "auto", `comma-separated prefixes to watch; "auto" = subnets of the capture interfaces, "" = everything`)
 		statePath   = flag.String("state", "sensor-state.json", "baseline file (loaded at start, saved periodically)")
 		silentAfter = flag.Duration("silent-after", 2*time.Minute, "mark host/service silent after this long without traffic (0 = never)")
 		learn       = flag.Duration("learn", 0, "build the baseline without emitting events for this long")
@@ -50,23 +60,26 @@ func main() {
 	log.SetFlags(log.Ltime)
 	log.SetPrefix("sensor: ")
 
-	if (*iface == "") == (*pcapFile == "") {
-		log.Fatal("use exactly one of -i <interface> or -r <file.pcap>")
+	if (*ifaces == "") == (*pcapFile == "") {
+		log.Fatal("use exactly one of -i <interface[,interface...]> or -r <file.pcap>")
 	}
-	prefixes, err := parsePrefixes(*nets)
+	live := *ifaces != ""
+	names := splitList(*ifaces)
+
+	prefixes, err := watchedPrefixes(*nets, names)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	handle, err := openHandle(*iface, *pcapFile, *filter, *snapLen)
+	captures, start, err := openCaptures(names, *pcapFile, *filter, *snapLen)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer handle.Close()
-	src, start, err := startTime(handle, *iface != "")
-	if err != nil {
-		log.Fatal(err)
-	}
+	defer func() {
+		for _, c := range captures {
+			c.handle.Close()
+		}
+	}()
 
 	var outMu sync.Mutex
 	enc := json.NewEncoder(os.Stdout)
@@ -100,46 +113,98 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	live := *iface != ""
 	if live {
-		// Live: wall-clock timers. Replay uses packet time instead (below).
+		// Live: wall-clock timers. Replay sweeps in packet time instead.
 		go every(ctx, *sweepEvery, func() { tracker.Sweep(time.Now()) })
 		go every(ctx, *saveEvery, save)
-		log.Printf("capturing on %s, watching %s, filter %q", *iface, *nets, *filter)
+		log.Printf("capturing on %s, watching %s, filter %q", *ifaces, formatPrefixes(prefixes), *filter)
 	}
 
-	dec := sensor.NewDecoder(prefixes)
-	var packets int
+	var packets atomic.Int64
+	var wg sync.WaitGroup
+	for _, c := range captures {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			readLoop(ctx, c, sensor.NewDecoder(prefixes), tracker, live, *sweepEvery, &packets)
+			if !live {
+				stop() // end of the pcap file
+			}
+		}()
+	}
+	wg.Wait()
+
+	if live {
+		var passed, dropped int
+		for _, c := range captures {
+			if st, err := c.handle.Stats(); err == nil {
+				passed += st.PacketsReceived
+				dropped += st.PacketsDropped
+			}
+		}
+		log.Printf("stopped after %d packets (kernel: %d passed filter, %d dropped)", packets.Load(), passed, dropped)
+		return
+	}
+	log.Printf("stopped after %d packets", packets.Load())
+}
+
+// readLoop feeds one capture into the shared tracker until ctx ends or the
+// source is exhausted. Each loop has its own decoder (decoders reuse buffers).
+func readLoop(ctx context.Context, c capture, dec *sensor.Decoder, tracker *sensor.Tracker,
+	live bool, sweepEvery time.Duration, packets *atomic.Int64) {
 	var lastSweep time.Time
 	for ctx.Err() == nil {
-		data, ci, err := src.ReadPacketData()
+		data, ci, err := c.src.ReadPacketData()
 		switch {
 		case errors.Is(err, pcap.NextErrorTimeoutExpired):
 			continue // lets us notice ctx cancellation
 		case errors.Is(err, io.EOF):
-			stop()
-			continue
+			return
 		case err != nil:
-			log.Printf("read: %v", err)
+			log.Printf("%s: read: %v", c.name, err)
 			continue
 		}
-		packets++
+		packets.Add(1)
 		for _, o := range dec.Decode(data, ci.Timestamp) {
 			tracker.Observe(o)
 		}
-		if !live && ci.Timestamp.Sub(lastSweep) >= *sweepEvery {
+		if !live && ci.Timestamp.Sub(lastSweep) >= sweepEvery {
 			tracker.Sweep(ci.Timestamp)
 			lastSweep = ci.Timestamp
 		}
 	}
-	if live {
-		if st, err := handle.Stats(); err == nil {
-			log.Printf("stopped after %d packets (kernel: %d passed filter, %d dropped)",
-				packets, st.PacketsReceived, st.PacketsDropped)
-			return
+}
+
+// openCaptures opens every interface (live) or the pcap file (replay) and
+// returns when observation starts: now for live capture, the first packet's
+// time for replay, so learn/grace windows work in packet time.
+func openCaptures(ifaces []string, pcapFile, filter string, snapLen int) ([]capture, time.Time, error) {
+	if len(ifaces) == 0 {
+		h, err := openHandle("", pcapFile, filter, snapLen)
+		if err != nil {
+			return nil, time.Time{}, err
 		}
+		first, ci, err := h.ReadPacketData()
+		if err != nil {
+			h.Close()
+			return nil, time.Time{}, err
+		}
+		src := &replay{r: h, first: first, firstCI: ci}
+		return []capture{{name: pcapFile, handle: h, src: src}}, ci.Timestamp, nil
 	}
-	log.Printf("stopped after %d packets", packets)
+
+	var out []capture
+	for _, name := range ifaces {
+		h, err := openHandle(name, "", filter, snapLen)
+		if err != nil {
+			for _, c := range out {
+				c.handle.Close()
+			}
+			return nil, time.Time{}, err
+		}
+		out = append(out, capture{name: name, handle: h, src: h})
+	}
+	return out, time.Now(), nil
 }
 
 // openHandle opens a live interface or a capture file through libpcap and
@@ -175,7 +240,7 @@ func openHandle(iface, pcapFile, filter string, snapLen int) (*pcap.Handle, erro
 	}
 	if h.LinkType() != layers.LinkTypeEthernet {
 		h.Close()
-		return nil, fmt.Errorf("link type %v, only Ethernet supported", h.LinkType())
+		return nil, fmt.Errorf("%s: link type %v, only Ethernet supported", iface+pcapFile, h.LinkType())
 	}
 	if filter != "" {
 		if err := h.SetBPFFilter(filter); err != nil {
@@ -184,19 +249,6 @@ func openHandle(iface, pcapFile, filter string, snapLen int) (*pcap.Handle, erro
 		}
 	}
 	return h, nil
-}
-
-// startTime returns when observation starts: now for live capture, the first
-// packet's time for replay (so learn/grace windows work in packet time).
-func startTime(h *pcap.Handle, live bool) (packetSource, time.Time, error) {
-	if live {
-		return h, time.Now(), nil
-	}
-	first, ci, err := h.ReadPacketData()
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	return &replay{r: h, first: first, firstCI: ci}, ci.Timestamp, nil
 }
 
 // replay re-delivers the packet consumed while reading the start time.
@@ -228,12 +280,46 @@ func every(ctx context.Context, d time.Duration, f func()) {
 	}
 }
 
+// watchedPrefixes resolves -net. "auto" takes the IPv4 subnets assigned to
+// the capture interfaces (a Docker bridge carries its network's gateway
+// address, e.g. 172.18.0.1/16); with no interfaces (replay) it means all.
+func watchedPrefixes(spec string, ifaces []string) ([]netip.Prefix, error) {
+	if spec != "auto" {
+		return parsePrefixes(spec)
+	}
+	var out []netip.Prefix
+	for _, name := range ifaces {
+		ifc, err := net.InterfaceByName(name)
+		if err != nil {
+			return nil, fmt.Errorf("-net auto: %w", err)
+		}
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			return nil, fmt.Errorf("-net auto: %s: %w", name, err)
+		}
+		found := false
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			p, err := netip.ParsePrefix(ipn.String())
+			if err != nil || !p.Addr().Is4() {
+				continue
+			}
+			out = append(out, p.Masked())
+			found = true
+		}
+		if !found {
+			return nil, fmt.Errorf("-net auto: %s has no IPv4 address; pass -net explicitly", name)
+		}
+	}
+	return out, nil
+}
+
 func parsePrefixes(s string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p == "" {
-			continue
-		}
+	for _, p := range splitList(s) {
 		pfx, err := netip.ParsePrefix(p)
 		if err != nil {
 			return nil, fmt.Errorf("-net: %w", err)
@@ -241,4 +327,25 @@ func parsePrefixes(s string) ([]netip.Prefix, error) {
 		out = append(out, pfx.Masked())
 	}
 	return out, nil
+}
+
+func formatPrefixes(ps []netip.Prefix) string {
+	if len(ps) == 0 {
+		return "everything"
+	}
+	s := make([]string, len(ps))
+	for i, p := range ps {
+		s[i] = p.String()
+	}
+	return strings.Join(s, ",")
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
