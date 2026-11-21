@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -76,7 +77,13 @@ func TestPortableRecordedInference(t *testing.T) {
 		if d.Unresolved || d.Forward != r.Forward || d.Fast.Forward != r.Fast || !reflect.DeepEqual(d.Features, r.Features) {
 			t.Fatalf("record %d changed: %+v", i, d)
 		}
-		if p.Tree.Score(d.Features) != r.Scores["tree"] || p.GNB.Score(d.Features) != r.Scores["gnb"] || p.Baseline.Anomaly(d.Event) != r.Scores["baseline"] {
+		// Go's math.Log/math.Exp use per-architecture assembly, so a recorded
+		// score can differ by a few ULP between amd64 and arm64. A relative
+		// 1e-12 tolerance absorbs that while still catching real regressions.
+		close := func(a, b float64) bool {
+			return math.Abs(a-b) <= 1e-12*math.Max(1, math.Max(math.Abs(a), math.Abs(b)))
+		}
+		if !close(p.Tree.Score(d.Features), r.Scores["tree"]) || !close(p.GNB.Score(d.Features), r.Scores["gnb"]) || !close(p.Baseline.Anomaly(d.Event), r.Scores["baseline"]) {
 			t.Fatalf("record %d Go scoring changed", i)
 		}
 	}
