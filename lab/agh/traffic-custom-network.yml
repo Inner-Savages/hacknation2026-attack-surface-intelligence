@@ -1,0 +1,80 @@
+# Nakładka na docker-compose-custom-network.yml z szablonów CBI AGH.
+#
+#   docker compose -f <AGH>/docker-compose-custom-network.yml \
+#                  -f lab/agh/traffic-custom-network.yml up -d
+#   docker compose -f ... -f ... logs -f sensor      # zdarzenia sensora
+#
+# Pliki AGH zostają bez zmian; bez tej nakładki stack działa dokładnie jak u AGH.
+# Nakładka nie używa żadnych lokalnych ścieżek (compose liczy je względem
+# katalogu PIERWSZEGO pliku), tylko gotowych obrazów, więc działa niezależnie
+# od tego, gdzie leżą pliki AGH.
+#
+# Dodaje:
+#   - stałe nazwy mostów dla sieci frontend/backend (sensor wie, gdzie słuchać),
+#   - traffic: łagodny ruch w tle (GET-y, połączenia z odczytem bannera), bez logowań,
+#   - flapper: host niestabilny, usługa HTTP działa FLAP_UP s, milczy FLAP_DOWN s,
+#   - sensor: pasywny sensor na obu mostach (sieć hosta, tylko CAP_NET_RAW).
+#
+# Jeśli sieci stacku już istnieją bez tych nazw mostów, najpierw `down`.
+
+networks:
+  frontend:
+    driver_opts:
+      com.docker.network.bridge.name: br-agh-front
+  backend:
+    driver_opts:
+      com.docker.network.bridge.name: br-agh-back
+
+services:
+  traffic:
+    image: ${SOTW_IMAGE_PREFIX:-ghcr.io/inner-savages/silence-on-the-wire}/traffic:${SOTW_TAG:-latest}
+    restart: unless-stopped
+    networks: [frontend, backend]
+    environment:
+      INTERVAL: ${TRAFFIC_INTERVAL:-10s}
+      TARGETS: >-
+        http://custom-api/get
+        http://flask-app/
+        http://gitea:3000/
+        tcp://gitea:22
+        http://rabbitmq:15672/
+        tcp://rabbitmq:5672
+        tcp://postgres:5432
+        http://flapper/
+
+  flapper:
+    image: nginx:alpine
+    restart: unless-stopped
+    networks: [backend]
+    environment:
+      FLAP_UP: ${FLAP_UP:-60}
+      FLAP_DOWN: ${FLAP_DOWN:-60}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          nginx; echo "flapper: UP for $${FLAP_UP}s"; sleep "$${FLAP_UP}"
+          nginx -s stop; echo "flapper: DOWN for $${FLAP_DOWN}s"; sleep "$${FLAP_DOWN}"
+        done
+
+  sensor:
+    image: ${SOTW_IMAGE_PREFIX:-ghcr.io/inner-savages/silence-on-the-wire}/sensor:${SOTW_TAG:-latest}
+    restart: unless-stopped
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    command:
+      - -i
+      - br-agh-front,br-agh-back
+      - -learn
+      - ${SENSOR_LEARN:-30s}
+      - -silent-after
+      - ${SENSOR_SILENT_AFTER:-60s}
+    volumes:
+      - sensor-data:/data
+    # Mosty powstają razem z sieciami stacku; sensor startuje po kontenerach,
+    # które ich używają.
+    depends_on: [traffic, flapper]
+
+volumes:
+  sensor-data:
