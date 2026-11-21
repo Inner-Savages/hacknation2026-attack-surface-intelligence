@@ -1,4 +1,4 @@
-module asi
+module github.com/Inner-Savages/silence-on-the-wire
 
 go 1.26.8
 

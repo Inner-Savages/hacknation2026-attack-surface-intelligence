@@ -26,7 +26,7 @@ import (
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcap"
 
-	"asi/internal/sensor"
+	"github.com/Inner-Savages/silence-on-the-wire/internal/sensor"
 )
 
 type packetSource interface {
