@@ -35,9 +35,9 @@ func (b *Banner) Fingerprint() string {
 	if b.PoweredBy != "" {
 		parts = append(parts, "powered_by="+b.PoweredBy)
 	}
-	if len(b.Cookies) > 0 {
-		parts = append(parts, "cookies="+strings.Join(b.Cookies, ","))
-	}
+	// Cookie names are kept in the banner but left out of the fingerprint:
+	// many apps set a cookie on some responses only (Gitea's i_like_gitea is
+	// on / but not on 404s), so their presence would look like a change.
 	parts = append(parts, b.Extra...)
 	return strings.Join(parts, "; ")
 }

@@ -92,9 +92,12 @@ func TestDecodeHTTPResponseBanner(t *testing.T) {
 	if s == nil || s.Banner == nil {
 		t.Fatalf("got %+v", obs)
 	}
-	want := "http; server=nginx/1.31.9; powered_by=PHP/8.1.2; cookies=wordpress_test_cookie; x-env: staging"
+	want := "http; server=nginx/1.31.9; powered_by=PHP/8.1.2; x-env: staging"
 	if got := s.Banner.Fingerprint(); got != want {
 		t.Fatalf("fingerprint\n got %q\nwant %q", got, want)
+	}
+	if len(s.Banner.Cookies) != 1 || s.Banner.Cookies[0] != "wordpress_test_cookie" {
+		t.Fatalf("cookies must stay in the banner: %v", s.Banner.Cookies)
 	}
 }
 

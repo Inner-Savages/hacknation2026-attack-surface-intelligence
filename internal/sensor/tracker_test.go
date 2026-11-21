@@ -162,3 +162,13 @@ func TestLoadMissingFileIsEmptyBaseline(t *testing.T) {
 		t.Fatalf("got %+v, %v", s, err)
 	}
 }
+
+// Gitea sets i_like_gitea on / but not on 404s: a cookie appearing and
+// disappearing must not be reported as a banner change.
+func TestCookiePresenceIsNotABannerChange(t *testing.T) {
+	tr, r := newTracker(Config{})
+	tr.Observe(open(0, 3000, &Banner{Protocol: "http", Cookies: []string{"i_like_gitea"}}))
+	tr.Observe(open(1, 3000, &Banner{Protocol: "http"}))
+	tr.Observe(open(2, 3000, &Banner{Protocol: "http", Cookies: []string{"i_like_gitea"}}))
+	expect(t, r, HostNew, ServiceNew)
+}
