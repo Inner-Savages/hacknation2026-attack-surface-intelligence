@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.98 scan initiated Sat Nov 21 21:44:29 2026 as: nmap -sT -sV -&#45;version-intensity 5 -Pn -n -p 2223,3001,5673,8787,8888,15432,15673,9 -&#45;max-rate 200 -oX internal/scan/testdata/agh-custom-network.xml 127.0.0.1 -->
+<nmaprun scanner="nmap" args="nmap -sT -sV -&#45;version-intensity 5 -Pn -n -p 2223,3001,5673,8787,8888,15432,15673,9 -&#45;max-rate 200 -oX internal/scan/testdata/agh-custom-network.xml 127.0.0.1" start="1795293869" startstr="Sat Nov 21 21:44:29 2026" version="7.98" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="8" services="9,2223,3001,5673,8787,8888,15432,15673"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1795293870" endtime="1795293917"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="127.0.0.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="9"><state state="closed" reason="conn-refused" reason_ttl="0"/><service name="discard" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2223"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="ssh" product="OpenSSH" version="10.3" extrainfo="protocol 2.0" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:10.3</cpe></service></port>
+<port protocol="tcp" portid="3001"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="http" product="Golang net/http server" method="probed" conf="10"><cpe>cpe:/a:golang:go</cpe></service></port>
+<port protocol="tcp" portid="5673"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="amqp" product="Advanced Message Queue Protocol" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="8787"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="http" product="nginx" method="probed" conf="10"><cpe>cpe:/a:igor_sysoev:nginx</cpe></service></port>
+<port protocol="tcp" portid="8888"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="15432"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="postgresql" product="PostgreSQL DB" version="9.6.0 or later" method="probed" conf="10"><cpe>cpe:/a:postgresql:postgresql</cpe></service></port>
+<port protocol="tcp" portid="15673"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="http" product="Cowboy httpd" method="probed" conf="10"><cpe>cpe:/a:ninenines:cowboy</cpe></service></port>
+</ports>
+<times srtt="9" rttvar="669" to="100000"/>
+</host>
+<runstats><finished time="1795293917" timestr="Sat Nov 21 21:45:17 2026" summary="Nmap done at Sat Nov 21 21:45:17 2026; 1 IP address (1 host up) scanned in 48.06 seconds" elapsed="48.06" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

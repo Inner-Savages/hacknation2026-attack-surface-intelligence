@@ -3,7 +3,6 @@
 [![CI](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Inner-Savages/silence-on-the-wire/badges/coverage.json)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Inner-Savages/silence-on-the-wire)](go.mod)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Inner-Savages/silence-on-the-wire)](https://goreportcard.com/report/github.com/Inner-Savages/silence-on-the-wire)
 [![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20traffic-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
 [![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-lightgrey)](Dockerfile)
 [![HackNation 2026](https://img.shields.io/badge/HackNation-2026-red)](https://hacknation.pl)
