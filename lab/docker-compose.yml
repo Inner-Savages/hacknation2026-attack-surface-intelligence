@@ -37,8 +37,8 @@ services:
     image: nginx:alpine
     networks: { lab: { ipv4_address: 172.28.0.20 } }
     environment:
-      FLAP_UP: "300"
-      FLAP_DOWN: "300"
+      FLAP_UP: "${FLAP_UP:-300}"
+      FLAP_DOWN: "${FLAP_DOWN:-300}"
     volumes:
       - ./scripts/flap.sh:/flap.sh:ro
     entrypoint: ["sh", "/flap.sh"]

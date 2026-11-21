@@ -14,5 +14,6 @@ Podsieć `172.28.0.0/24`, most `br-asilab`.
 docker compose -f lab/docker-compose.yml up -d
 sudo tcpdump -ni br-asilab tcp port 80     # ruch widoczny na hoście
 nmap -sn 172.28.0.0/24                      # skan z hosta
+FLAP_UP=35 FLAP_DOWN=35 docker compose -f lab/docker-compose.yml up -d flapper   # szybszy flapper do testów
 docker compose -f lab/docker-compose.yml down
 ```
