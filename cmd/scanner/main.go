@@ -4,6 +4,7 @@
 //
 //	scanner -t 127.0.0.1 -p 2223,3001,5673,8787,8888,15432,15673 -Pn -o scan.json
 //	scanner -f targets.txt -allow 10.0.0.0/16 -max-rate 300
+//	scanner diff old.json new.json
 package main
 
 import (
@@ -26,6 +27,12 @@ import (
 )
 
 func main() {
+	log.SetFlags(log.Ltime)
+	log.SetPrefix("scanner: ")
+	if len(os.Args) > 1 && os.Args[1] == "diff" {
+		runDiff(os.Args[2:])
+		return
+	}
 	var (
 		targetList  = flag.String("t", "", "targets: IPs, CIDRs, hostnames (comma/space separated)")
 		targetFile  = flag.String("f", "", "file with targets, one or more per line, '#' comments")
@@ -39,7 +46,7 @@ func main() {
 		hostTimeout = flag.Duration("host-timeout", 5*time.Minute, "give up on a single host after this long")
 		chunkSize   = flag.Int("chunk", 256, "targets per nmap process")
 		parallel    = flag.Int("parallel", 4, "concurrent nmap processes")
-		output      = flag.String("o", "", "write the JSON result here (default stdout)")
+		output      = flag.String("o", "", "write the JSON result here (default or \"-\": stdout)")
 		doProbe     = flag.Bool("probe", true, "probe web services found by nmap (GET only: page, same-host redirects, favicon)")
 		probePar    = flag.Int("probe-parallel", 8, "concurrent HTTP probes")
 		probeTO     = flag.Duration("probe-timeout", 10*time.Second, "timeout per HTTP request")
@@ -141,7 +148,7 @@ func main() {
 	}
 
 	var w io.Writer = os.Stdout
-	if *output != "" {
+	if *output != "" && *output != "-" {
 		f, err := os.OpenFile(*output, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			log.Fatal(err)

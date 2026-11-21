@@ -2,9 +2,9 @@ package result
 
 import "net/netip"
 
-// addrLess sorts IP addresses numerically and anything else (hostnames)
+// AddrLess sorts IP addresses numerically and anything else (hostnames)
 // after them, alphabetically.
-func addrLess(a, b string) bool {
+func AddrLess(a, b string) bool {
 	pa, ea := netip.ParseAddr(a)
 	pb, eb := netip.ParseAddr(b)
 	switch {

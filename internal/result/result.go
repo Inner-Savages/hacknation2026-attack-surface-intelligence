@@ -75,7 +75,7 @@ func (d *Duration) UnmarshalText(b []byte) error {
 // Sort orders hosts by address and services by protocol and port, so
 // results are stable regardless of chunk completion order.
 func (s *Scan) Sort() {
-	sort.Slice(s.Hosts, func(i, j int) bool { return addrLess(s.Hosts[i].Address, s.Hosts[j].Address) })
+	sort.Slice(s.Hosts, func(i, j int) bool { return AddrLess(s.Hosts[i].Address, s.Hosts[j].Address) })
 	for i := range s.Hosts {
 		svc := s.Hosts[i].Services
 		sort.Slice(svc, func(a, b int) bool {
