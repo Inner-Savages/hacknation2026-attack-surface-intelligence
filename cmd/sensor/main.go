@@ -4,6 +4,7 @@
 //
 //	./sensor -i br-asilab -learn 30s
 //	./sensor -i br-front,br-back -net 172.18.0.0/16
+//	./sensor -i 'br-*'          # every Docker bridge
 //	./sensor -r capture.pcap -net 172.28.0.0/24
 package main
 
@@ -45,7 +46,7 @@ type capture struct {
 
 func main() {
 	var (
-		ifaces      = flag.String("i", "", "comma-separated interfaces to capture on live (needs CAP_NET_RAW)")
+		ifaces      = flag.String("i", "", `comma-separated interfaces to capture on live, globs allowed ("br-*" = every Docker bridge that is up); needs CAP_NET_RAW`)
 		pcapFile    = flag.String("r", "", "replay a pcap/pcapng file instead of live capture")
 		filter      = flag.String("f", sensor.DefaultBPF, "BPF filter applied in the kernel (empty = capture everything)")
 		snapLen     = flag.Int("snaplen", sensor.DefaultSnapLen, "bytes captured per packet")
@@ -64,7 +65,13 @@ func main() {
 		log.Fatal("use exactly one of -i <interface[,interface...]> or -r <file.pcap>")
 	}
 	live := *ifaces != ""
-	names := splitList(*ifaces)
+	var names []string
+	if live {
+		var err error
+		if names, err = resolveInterfaces(splitList(*ifaces)); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	prefixes, err := watchedPrefixes(*nets, names)
 	if err != nil {
@@ -117,7 +124,7 @@ func main() {
 		// Live: wall-clock timers. Replay sweeps in packet time instead.
 		go every(ctx, *sweepEvery, func() { tracker.Sweep(time.Now()) })
 		go every(ctx, *saveEvery, save)
-		log.Printf("capturing on %s, watching %s, filter %q", *ifaces, formatPrefixes(prefixes), *filter)
+		log.Printf("capturing on %s, watching %s, filter %q", strings.Join(names, ","), formatPrefixes(prefixes), *filter)
 	}
 
 	var packets atomic.Int64
@@ -278,6 +285,20 @@ func every(ctx context.Context, d time.Duration, f func()) {
 			f()
 		}
 	}
+}
+
+// resolveInterfaces expands -i specs (names and globs) against the host's
+// interfaces.
+func resolveInterfaces(specs []string) ([]string, error) {
+	ifcs, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+	avail := make([]sensor.Iface, len(ifcs))
+	for i, ifc := range ifcs {
+		avail[i] = sensor.Iface{Name: ifc.Name, Up: ifc.Flags&net.FlagUp != 0}
+	}
+	return sensor.ExpandInterfaces(specs, avail)
 }
 
 // watchedPrefixes resolves -net. "auto" takes the IPv4 subnets assigned to
