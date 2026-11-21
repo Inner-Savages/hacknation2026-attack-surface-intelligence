@@ -59,6 +59,42 @@ Stopping the stack preserves both named volumes, including pending escalations
 and accepted envelopes. Do not remove the volumes until their contents have been
 processed or archived.
 
+## Run the decisions inbox on an external host
+
+If the central analytics endpoint cannot host the inbox itself, run the
+bundled receiver as a standalone container anywhere reachable and point the
+gate at it. The receiver is the same hardened `edgegate` image; it keeps
+escalations durable on its own volume until an analytics service consumes
+them, and it needs no model weights.
+
+```sh
+docker build -f deploy/cascade50/Dockerfile.edgegate -t asi-edgegate:cascade50 .
+docker run -d --name asi-inbox --read-only --tmpfs /tmp \
+  -e ASI_CENTRAL_TOKEN=choose-a-long-random-token \
+  -v asi-inbox-data:/data \
+  asi-edgegate:cascade50 receive -listen 0.0.0.0:8080 -inbox-dir /data/inbox
+```
+
+The receiver speaks plain HTTP, which is fine for the local Compose network.
+Before exposing it beyond loopback, put it behind a TLS proxy (Caddy, nginx,
+a cloud load balancer). The gate refuses a non-HTTPS remote central URL on
+purpose, so the proxy is not optional on a real network. Any gate can then
+deliver decisions to it:
+
+```sh
+export ASI_CENTRAL_TOKEN=choose-a-long-random-token
+./bin/edgegate gate -sensor-id site-a \
+  -policy deploy/cascade50/policy.json \
+  -input var/cascade50/events.jsonl -follow \
+  -outbox-dir var/cascade50/outbox \
+  -central-url https://inbox.example.org/events
+```
+
+The acknowledgement contract is intentionally tiny — `POST /events` with a
+bearer token, `202` only after a durable write, deduplication by `event_id` —
+so a later operator console or analytics platform can replace the bundled
+receiver without touching the gate.
+
 ## Connect the unchanged sensor and lab
 
 Run live capture on a Linux machine that can see the monitored interfaces. Docker
@@ -129,6 +165,34 @@ This gate does not automatically launch active scans.
   baseline. Future updates require approved external feedback and recalibration.
 - `host_silent` describes lack of observed traffic; it does not establish that a
   host is inactive or compromised.
+
+## Model interchange and the System One standard
+
+All three neural backends speak one vendor-neutral wire protocol,
+`POST /v1/systemone`. The gate sends a structured state (event, extracted
+features, baseline anomaly) plus a yes/no question with explicit criteria,
+and expects a probability (`answers.attack.noul` in `[0,1]`), the serving
+model's identity and no truncated questions. The sensor, gate and comparator
+never link against any model runtime: a backend can be a Python server, a
+llama.cpp container or a future vendor appliance, as long as it honours the
+contract.
+
+This is what keeps the stack replaceable as AI moves on. Newer, smaller or
+more energy- and compute-efficient models can be swapped in per stage:
+
+1. Serve the new weights behind the same `/v1/systemone` contract — a thin
+   adapter container is usually enough.
+2. Update the expected model identity in `deploy/cascade50/policy.json`. The
+   gate pins and verifies the reported identity on every response, so a
+   silent model or routing change fails closed into escalation instead of
+   changing behaviour unnoticed.
+3. Recalibrate and re-evaluate the thresholds — probabilities from different
+   models are not assumed to be interchangeable — then pin the new artifact
+   hashes in [models/manifest.json](../../models/manifest.json).
+
+The same applies to the fast Go stage: the Tree/GNB pair is exported
+parameters, not embedded code, so a refreshed calibration ships as policy
+data. There is no model-vendor lock-in anywhere in the decision path.
 
 ## Calibration and reproducibility
 
