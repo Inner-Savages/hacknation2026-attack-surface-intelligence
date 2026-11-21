@@ -2,9 +2,10 @@
 
 `upstream/` is the set of example environments the challenge organizers (Information
 Security Center of AGH University of Krakow, CBI AGH) shared with HackNation 2026
-participants, included here with their permission. The files are unchanged from the
-original archive (the only difference: `quickstart.sh` is marked executable, as its
-README expects). See `upstream/README.md` (Polish) for the stacks and their quickstart.
+participants. The files are unchanged from the original archive (the only difference:
+`quickstart.sh` is marked executable, as its README expects). 
+
+See `upstream/README.md` (Polish) for the stacks and their quickstart.
 
 Our additions live next to it and never modify the upstream files:
 
