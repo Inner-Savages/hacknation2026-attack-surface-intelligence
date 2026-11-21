@@ -176,7 +176,7 @@ func TestRunFetchesPathsOnlyForWebServices(t *testing.T) {
 	f := &fakeFetcher{calls: map[string]int{}}
 	engine(t).Run(context.Background(), s, f, 4)
 
-	if len(f.calls) != 5 || f.calls["/wp-login.php"] != 1 {
+	if len(f.calls) != 6 || f.calls["/wp-login.php"] != 1 { // 5 signature paths + 1 not-found baseline
 		t.Fatalf("fetches: %v", f.calls)
 	}
 	svcs := s.Hosts[0].Services
@@ -202,5 +202,85 @@ func TestVersionOnlyEvidenceIsNotEnough(t *testing.T) {
 	adminer := web(nil, "Login - Adminer", `<span class="version">4.8.1</span>`)
 	if a := find(engine(t).Identify(adminer, nil), "Adminer"); a == nil || a.Version != "4.8.1" {
 		t.Fatalf("adminer with title: %+v", a)
+	}
+}
+
+// catchAll answers every path with the same login page, like Adminer.
+type catchAll struct{}
+
+func (catchAll) FetchPath(_ context.Context, _ *result.Host, _ *result.Service, path string) (*result.Page, error) {
+	body := `<title>Login - Adminer</title><form><input type="password" name="auth[password]"></form><a href="` + path + `">`
+	return &result.Page{Path: path, Status: 200, Title: "Login - Adminer", Body: []byte(body)}, nil
+}
+
+func TestCatchAllPathsAreNotEvidence(t *testing.T) {
+	s := &result.Scan{Hosts: []result.Host{{Address: "127.0.0.1", State: "up", Services: []result.Service{
+		*web(nil, "Login - Adminer", `<span class="version">4.8.1</span><input type="password">`),
+	}}}}
+	engine(t).Run(context.Background(), s, catchAll{}, 2)
+	techs := s.Hosts[0].Services[0].Tech
+	for _, tech := range techs {
+		for _, ev := range tech.Evidence {
+			if strings.HasPrefix(ev, "path ") {
+				t.Errorf("%s: path evidence from a catch-all app: %v", tech.Name, tech.Evidence)
+			}
+		}
+	}
+	if find(techs, "Adminer") == nil {
+		t.Fatal("adminer must still be recognized from the main page")
+	}
+}
+
+func TestSoftNotFound(t *testing.T) {
+	base := &result.Page{Status: 200, Title: "App", Body: make([]byte, 1000)}
+	for _, c := range []struct {
+		page *result.Page
+		want bool
+	}{
+		{&result.Page{Status: 200, Title: "App", Body: make([]byte, 1100)}, true},
+		{&result.Page{Status: 200, Title: "App", Body: make([]byte, 2000)}, false},
+		{&result.Page{Status: 200, Title: "Admin", Body: make([]byte, 1000)}, false},
+		{&result.Page{Status: 302, Title: "App", Body: make([]byte, 1000)}, false},
+	} {
+		if got := SoftNotFound(base, c.page); got != c.want {
+			t.Errorf("%+v: %v, want %v", c.page.Title, got, c.want)
+		}
+	}
+	if SoftNotFound(&result.Page{Status: 404}, base) || SoftNotFound(nil, base) {
+		t.Error("a real 404 baseline never hides pages")
+	}
+}
+
+func TestDVWATitleIsNotAStagingEnvironment(t *testing.T) {
+	svc := web(nil, "Login :: Damn Vulnerable Web Application (DVWA) v1.10 *Development*", "")
+	if s := find(engine(t).Identify(svc, nil), "Staging / test environment"); s != nil {
+		t.Fatalf("false positive: %+v", s)
+	}
+}
+
+func TestAdminerVersionFromAssetLinks(t *testing.T) {
+	svc := web(nil, "Login - Adminer", `<link rel="stylesheet" href="?file=default.css&amp;version=5.3.0+9afc53aa">`)
+	if a := find(engine(t).Identify(svc, nil), "Adminer"); a == nil || a.Version != "5.3.0" {
+		t.Fatalf("adminer: %+v", a)
+	}
+}
+
+// Facts observed on the CBI AGH "modern" stack.
+func TestModernStackSignatures(t *testing.T) {
+	e := engine(t)
+	npm := web(map[string][]string{"server": {"openresty"}}, "Default Site", "<h1>Congratulations!</h1> Nginx Proxy Manager")
+	techs := e.Identify(npm, nil)
+	for _, name := range []string{"OpenResty", "Nginx Proxy Manager", "Default web server page"} {
+		if find(techs, name) == nil {
+			t.Errorf("NPM :80: %s not recognized in %+v", name, techs)
+		}
+	}
+	pma := web(map[string][]string{"server": {"Apache/2.4.71"}}, "phpMyAdmin", `<link href="./themes/pmahomme/css/theme.css?v=5.2.3">`, "phpMyAdmin")
+	if p := find(e.Identify(pma, nil), "phpMyAdmin"); p == nil || p.Version != "5.2.3" {
+		t.Errorf("phpMyAdmin: %+v", p)
+	}
+	// ?v= alone must never claim phpMyAdmin.
+	if p := find(e.Identify(web(nil, "Shop", `<script src="app.js?v=1.2.3">`), nil), "phpMyAdmin"); p != nil {
+		t.Errorf("false positive: %+v", p)
 	}
 }

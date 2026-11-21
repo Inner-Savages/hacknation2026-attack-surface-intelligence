@@ -10,10 +10,13 @@ package fingerprint
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -359,12 +362,16 @@ func (e *Engine) Run(ctx context.Context, s *result.Scan, f Fetcher, parallel in
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				pages := map[string]*result.Page{}
-				if f != nil && svc.HTTP != nil && svc.HTTP.Error == "" {
+				if f != nil && svc.HTTP != nil && svc.HTTP.Error == "" && len(paths) > 0 {
+					// Apps that answer every URL with the same page (front
+					// controllers, SPAs) would make every path check pass:
+					// fetch a path that cannot exist and ignore look-alikes.
+					baseline, _ := f.FetchPath(ctx, h, svc, notFoundPath())
 					for _, p := range paths {
 						if ctx.Err() != nil {
 							return
 						}
-						if page, err := f.FetchPath(ctx, h, svc, p); err == nil {
+						if page, err := f.FetchPath(ctx, h, svc, p); err == nil && !SoftNotFound(baseline, page) {
 							pages[p] = page
 						}
 					}
@@ -374,4 +381,25 @@ func (e *Engine) Run(ctx context.Context, s *result.Scan, f Fetcher, parallel in
 		}
 	}
 	wg.Wait()
+}
+
+// notFoundPath returns a random path no real application serves.
+func notFoundPath() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "/sotw-not-found-" + hex.EncodeToString(b)
+}
+
+// SoftNotFound reports whether page is just the catch-all answer seen for a
+// path that does not exist: a 200 with the same title and a length within
+// 20% (pages often embed the requested URL, so bodies are not identical).
+func SoftNotFound(baseline, page *result.Page) bool {
+	if baseline == nil || page == nil || baseline.Status != 200 || page.Status != 200 {
+		return false
+	}
+	if baseline.Title != page.Title {
+		return false
+	}
+	a, b := float64(len(baseline.Body)), float64(len(page.Body))
+	return math.Abs(a-b) <= 0.2*math.Max(a, b)
 }

@@ -16,6 +16,7 @@
   match:
     - {title: 'phpMyAdmin', weight: 0.9}
     - {cookie: '^(phpMyAdmin|pma_)', weight: 0.8}
+    - {body: '[?&](?:amp;)?v=([0-9][0-9.]*)', version: 1, weight: 0.2} # version only: asset links carry ?v=5.2.3
 
 - name: Adminer
   category: db-admin
@@ -23,6 +24,7 @@
   match:
     - {title: 'Adminer', weight: 0.9}
     - {body: 'class="version">([0-9][0-9.]*)', version: 1, weight: 0.3} # version only: too generic to count on its own
+    - {body: '\?file=[a-z.]+&(?:amp;)?version=([0-9][0-9.]*)', version: 1, weight: 0.3} # Adminer 5+: version in asset links
 
 - name: DVWA
   category: app
@@ -56,6 +58,7 @@
   match:
     - {title: 'Nginx Proxy Manager', weight: 0.9}
     - {body: 'Nginx Proxy Manager', weight: 0.7}
+    - {title: '^Default Site$', weight: 0.4} # NPM's catch-all page on :80
 
 - name: httpbin
   category: app

@@ -6,7 +6,10 @@
   tags: [staging]
   match:
     - {header: x-env, value: '(staging|stage|test|dev|uat|qa)', weight: 0.9}
-    - {title: '\b(staging|stage|uat|testing|development)\b', weight: 0.7}
+    - {title: '\b(staging|stage|uat|preprod|pre-prod)\b', weight: 0.7}
+    # 'development'/'test' in a title is weak alone: DVWA calls itself
+    # "v1.10 *Development*" without being a test copy of anything.
+    - {title: '\b(testing|test|development|dev)\b', weight: 0.35}
     - {header: x-robots-tag, value: 'noindex', weight: 0.2}
 
 - name: Admin panel
@@ -33,4 +36,4 @@
   category: exposure
   tags: [default-page]
   match:
-    - {title: '^(Welcome to nginx!|Apache2 [A-Za-z]+ Default Page|It works!|IIS Windows Server)', weight: 0.9}
+    - {title: '^(Welcome to nginx!|Apache2 [A-Za-z]+ Default Page|It works!|IIS Windows Server|Default Site)', weight: 0.9}

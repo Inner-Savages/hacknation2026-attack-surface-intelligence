@@ -5,6 +5,12 @@
     - {header: server, value: '^nginx(?:/([0-9][0-9.]*))?', version: 1, weight: 0.9}
     - {nmap_product: '^nginx', nmap_version: true, weight: 0.8}
 
+- name: OpenResty
+  category: server
+  match:
+    - {header: server, value: '^openresty(?:/([0-9][0-9.]*))?', version: 1, weight: 0.9}
+    - {nmap_product: 'OpenResty', nmap_version: true, weight: 0.8}
+
 - name: Apache httpd
   category: server
   match:
