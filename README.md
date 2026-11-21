@@ -53,6 +53,27 @@ network traffic ──► [ passive sensor ] ── change events ──► [ ac
   phpMyAdmin, Adminer, DVWA, Gitea, RabbitMQ, Traefik, nginx, PHP, databases, SSH, a few
   IoT devices, plus staging environments, admin panels, setup and default pages).
   `scanner diff` compares two results: new, gone and changed hosts and services.
+
+  *Why the favicon?* Most web apps ship with a default icon, and almost nobody replaces
+  it: an admin may hide the `Server` header, the version and the page title, but Gitea,
+  phpMyAdmin or a router panel still serves its stock `favicon.ico`. A hash of that file
+  therefore identifies the product even when nothing else in the response does. The hash
+  is computed exactly like Shodan's `http.favicon.hash` (mmh3 of the base64-encoded icon),
+  so it can be matched against public hash lists or searched on Shodan
+  (`http.favicon.hash:<n>`) to find other instances. A changed hash between two scans
+  means a different application, or version, now answers on that address.
+
+  *Why our own signature format?* There is no single standard, only de facto ones, each
+  covering part of the job: Wappalyzer/webappanalyzer (JSON, the largest web technology
+  base, but passive: one response, no paths, no favicon hashes, no nmap data), nuclei
+  templates (YAML with favicon hashes, but a whole engine that sends its own requests,
+  many of them beyond a safe GET), nmap-service-probes (TCP level, used here through
+  `-sV`), Recog and WhatWeb. Our format is small (one kind of evidence per matcher) and
+  combines nmap results, the HTTP response, the favicon and safe GET-only paths, with
+  weights that add up to a confidence score. It also has rules those bases lack, such as
+  "staging" or "admin panel". The cost is that we don't get thousands of signatures for
+  free. The natural next step is an importer that translates Wappalyzer technologies and
+  nuclei favicon hashes into this format, without adopting their engines.
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
