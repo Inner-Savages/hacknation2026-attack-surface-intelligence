@@ -58,6 +58,7 @@ type Service struct {
 	Tunnel    string   `json:"tunnel,omitempty"` // "ssl" when nmap saw TLS
 	CPE       []string `json:"cpe,omitempty"`
 	HTTP      *HTTP    `json:"http,omitempty"` // filled by the HTTP prober for web services
+	Tech      []Tech   `json:"tech,omitempty"` // filled by fingerprinting
 }
 
 // Duration marshals as a human-readable string ("1m2.5s").

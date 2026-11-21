@@ -221,3 +221,34 @@ func TestProbeScanFillsWebServicesOnly(t *testing.T) {
 		t.Fatal("ssh must not be probed")
 	}
 }
+
+func TestFetchPath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/wp-login.php" {
+			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+			w.Write([]byte(`<title>Log In</title><form id="loginform">`))
+			return
+		}
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
+	}))
+	defer srv.Close()
+	tg := targetFor(t, srv)
+	h := &result.Host{Address: tg.Addr}
+	s := &result.Service{Port: tg.Port, HTTP: &result.HTTP{URL: srv.URL + "/"}}
+	p := &Prober{Timeout: 2 * time.Second}
+
+	page, err := p.FetchPath(context.Background(), h, s, "/wp-login.php")
+	if err != nil || page.Status != 200 || page.Title != "Log In" || page.Headers["x-frame-options"][0] != "SAMEORIGIN" {
+		t.Fatalf("page %+v, err %v", page, err)
+	}
+	page, err = p.FetchPath(context.Background(), h, s, "/admin/")
+	if err != nil || page.Status != 302 {
+		t.Fatalf("redirects must not be followed: %+v, %v", page, err)
+	}
+	if _, err := p.FetchPath(context.Background(), h, s, "//evil.example/x"); err == nil {
+		t.Fatal("a path must not leave the service")
+	}
+	if _, err := p.FetchPath(context.Background(), h, &result.Service{Port: tg.Port}, "/"); err == nil {
+		t.Fatal("unprobed service must be refused")
+	}
+}

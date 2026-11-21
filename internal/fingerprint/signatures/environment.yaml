@@ -1,0 +1,36 @@
+# Properties of a service rather than products: test environments, admin
+# panels, unfinished installations, default pages. Path checks are plain
+# GETs without parameters; nothing logs in.
+- name: Staging / test environment
+  category: environment
+  tags: [staging]
+  match:
+    - {header: x-env, value: '(staging|stage|test|dev|uat|qa)', weight: 0.9}
+    - {title: '\b(staging|stage|uat|testing|development)\b', weight: 0.7}
+    - {header: x-robots-tag, value: 'noindex', weight: 0.2}
+
+- name: Admin panel
+  category: exposure
+  tags: [admin-panel]
+  match:
+    - {title: '\b(admin(istration|istrator)?|control panel|management|dashboard)\b', weight: 0.6}
+    - {path: /admin/, body: '(admin|login|password)', weight: 0.7}
+
+- name: Login page
+  category: exposure
+  tags: [login]
+  match:
+    - {path: /login, body: 'type="password"', weight: 0.7}
+    - {body: 'type="password"', weight: 0.6}
+
+- name: Setup / installation page
+  category: exposure
+  tags: [setup-page]
+  match:
+    - {title: '\b(installation|install|setup|configuration wizard)\b', weight: 0.8}
+
+- name: Default web server page
+  category: exposure
+  tags: [default-page]
+  match:
+    - {title: '^(Welcome to nginx!|Apache2 [A-Za-z]+ Default Page|It works!|IIS Windows Server)', weight: 0.9}

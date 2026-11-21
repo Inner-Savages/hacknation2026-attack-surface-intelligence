@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Inner-Savages/silence-on-the-wire/internal/fingerprint"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/probe"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/scan"
@@ -42,6 +43,9 @@ func main() {
 		doProbe     = flag.Bool("probe", true, "probe web services found by nmap (GET only: page, same-host redirects, favicon)")
 		probePar    = flag.Int("probe-parallel", 8, "concurrent HTTP probes")
 		probeTO     = flag.Duration("probe-timeout", 10*time.Second, "timeout per HTTP request")
+		doFP        = flag.Bool("fingerprint", true, "recognize technologies with signatures")
+		fpPaths     = flag.Bool("fingerprint-paths", true, "let signatures GET fixed paths such as /wp-login.php")
+		sigFiles    = flag.String("signatures", "", "extra signature YAML files (comma separated)")
 	)
 	flag.Parse()
 	log.SetFlags(log.Ltime)
@@ -97,6 +101,17 @@ func main() {
 	if err := s.Options.Validate(); err != nil {
 		log.Fatal(err)
 	}
+	// Load signatures before scanning so a broken custom file fails fast.
+	var extra []string
+	for _, f := range strings.Split(*sigFiles, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			extra = append(extra, f)
+		}
+	}
+	engine, err := fingerprint.NewEngine(extra...)
+	if err != nil {
+		log.Fatalf("signatures: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -109,10 +124,20 @@ func main() {
 	if err != nil {
 		log.Printf("scan interrupted: %v (writing partial result)", err)
 	}
+	prober := &probe.Prober{Timeout: *probeTO}
 	if *doProbe && ctx.Err() == nil {
 		start := time.Now()
-		n := (&probe.Prober{Timeout: *probeTO}).ProbeScan(ctx, res, *probePar)
+		n := prober.ProbeScan(ctx, res, *probePar)
 		log.Printf("probed %d web services in %v", n, time.Since(start).Round(time.Millisecond))
+	}
+	if *doFP && ctx.Err() == nil {
+		start := time.Now()
+		var fetcher fingerprint.Fetcher
+		if *fpPaths && *doProbe {
+			fetcher = prober
+		}
+		engine.Run(ctx, res, fetcher, *probePar)
+		log.Printf("fingerprinted in %v", time.Since(start).Round(time.Millisecond))
 	}
 
 	var w io.Writer = os.Stdout

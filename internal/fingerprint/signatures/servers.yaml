@@ -1,0 +1,50 @@
+# Web servers, proxies and languages, mostly from response headers and nmap.
+- name: nginx
+  category: server
+  match:
+    - {header: server, value: '^nginx(?:/([0-9][0-9.]*))?', version: 1, weight: 0.9}
+    - {nmap_product: '^nginx', nmap_version: true, weight: 0.8}
+
+- name: Apache httpd
+  category: server
+  match:
+    - {header: server, value: '^Apache(?:/([0-9][0-9.]*))?', version: 1, weight: 0.9}
+    - {nmap_product: '^Apache httpd', nmap_version: true, weight: 0.8}
+
+- name: Microsoft IIS
+  category: server
+  match:
+    - {header: server, value: '^Microsoft-IIS/([0-9.]+)', version: 1, weight: 0.95}
+
+- name: lighttpd
+  category: server
+  match:
+    - {header: server, value: '^lighttpd(?:/([0-9.]+))?', version: 1, weight: 0.9}
+
+- name: gunicorn
+  category: server
+  match:
+    - {header: server, value: '^gunicorn(?:/([0-9.]+))?', version: 1, weight: 0.9}
+
+- name: Cowboy
+  category: server
+  match:
+    - {header: server, value: '^Cowboy', weight: 0.9}
+    - {nmap_product: 'Cowboy', weight: 0.8}
+
+- name: Go net/http
+  category: server
+  match:
+    - {nmap_product: 'Golang net/http', weight: 0.8}
+
+- name: PHP
+  category: language
+  match:
+    - {header: x-powered-by, value: '^PHP/?([0-9][0-9.]*)?', version: 1, weight: 0.9}
+    - {cookie: '^PHPSESSID$', weight: 0.6}
+
+- name: ASP.NET
+  category: framework
+  match:
+    - {header: x-powered-by, value: '^ASP\.NET', weight: 0.9}
+    - {header: x-aspnet-version, value: '([0-9.]+)', version: 1, weight: 0.9}

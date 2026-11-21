@@ -1,0 +1,20 @@
+# Embedded devices: their web servers announce themselves in headers.
+- name: GoAhead embedded web server
+  category: iot
+  match:
+    - {header: server, value: '^GoAhead', weight: 0.85}
+
+- name: Boa embedded web server
+  category: iot
+  match:
+    - {header: server, value: '^Boa/([0-9.]+)', version: 1, weight: 0.85}
+
+- name: Hikvision camera
+  category: iot
+  match:
+    - {header: server, value: '^(App-webs|DNVRS-Webs|Hikvision-Webs)', weight: 0.9}
+
+- name: MikroTik RouterOS
+  category: iot
+  match:
+    - {title: 'RouterOS', weight: 0.9}

@@ -1,0 +1,75 @@
+# Applications, CMSs and admin tools, including everything in the CBI AGH
+# lab templates.
+- name: WordPress
+  category: cms
+  match:
+    - {cookie: '^wordpress_', weight: 0.7}
+    - {header: link, value: 'api\.w\.org', weight: 0.8}
+    - {body: '<meta name="generator" content="WordPress ?([0-9][0-9.]*)?', version: 1, weight: 0.9}
+    - {body: '/wp-(?:content|includes)/', weight: 0.6}
+    - {body: 'wp-includes/[^"'']*\?ver=([0-9][0-9.]*)', version: 1, weight: 0.5}
+    - {path: /wp-login.php, body: 'loginform|wp-submit', weight: 0.8}
+
+- name: phpMyAdmin
+  category: db-admin
+  tags: [admin-panel]
+  match:
+    - {title: 'phpMyAdmin', weight: 0.9}
+    - {cookie: '^(phpMyAdmin|pma_)', weight: 0.8}
+
+- name: Adminer
+  category: db-admin
+  tags: [admin-panel]
+  match:
+    - {title: 'Adminer', weight: 0.9}
+    - {body: 'class="version">([0-9][0-9.]*)', version: 1, weight: 0.3} # version only: too generic to count on its own
+
+- name: DVWA
+  category: app
+  tags: [intentionally-vulnerable]
+  match:
+    - {title: 'Damn Vulnerable Web Application', weight: 0.95}
+    - {path: /login.php, title: 'Damn Vulnerable', weight: 0.9}
+
+- name: Gitea
+  category: app
+  match:
+    - {cookie: '^i_like_gitea$', weight: 0.9}
+    - {title: 'Gitea', weight: 0.8}
+    - {body: 'Powered by Gitea', weight: 0.7}
+
+- name: RabbitMQ Management
+  category: app
+  tags: [admin-panel]
+  match:
+    - {title: 'RabbitMQ Management', weight: 0.95}
+
+- name: Traefik dashboard
+  category: proxy
+  tags: [admin-panel]
+  match:
+    - {title: '^Traefik', weight: 0.8}
+    - {path: /dashboard/, title: 'Traefik', weight: 0.9}
+
+- name: Nginx Proxy Manager
+  category: proxy
+  match:
+    - {title: 'Nginx Proxy Manager', weight: 0.9}
+    - {body: 'Nginx Proxy Manager', weight: 0.7}
+
+- name: httpbin
+  category: app
+  match:
+    - {title: 'httpbin', weight: 0.9}
+
+- name: Jenkins
+  category: app
+  tags: [admin-panel]
+  match:
+    - {header: x-jenkins, value: '([0-9][0-9.]*)', version: 1, weight: 0.95}
+
+- name: Grafana
+  category: app
+  tags: [admin-panel]
+  match:
+    - {title: '^Grafana', weight: 0.9}

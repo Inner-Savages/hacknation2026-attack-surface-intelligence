@@ -1,0 +1,41 @@
+# Non-HTTP services recognized from nmap service detection.
+- name: OpenSSH
+  category: service
+  match:
+    - {nmap_product: '^OpenSSH', nmap_version: true, weight: 0.95}
+
+- name: PostgreSQL
+  category: database
+  match:
+    - {nmap_product: 'PostgreSQL', nmap_version: true, weight: 0.95}
+
+- name: MySQL
+  category: database
+  match:
+    - {nmap_product: '^MySQL', nmap_version: true, weight: 0.95}
+
+- name: MariaDB
+  category: database
+  match:
+    - {nmap_product: 'MariaDB', nmap_version: true, weight: 0.95}
+
+- name: Redis
+  category: database
+  match:
+    - {nmap_product: '^Redis', nmap_version: true, weight: 0.95}
+    - {nmap_service: '^redis$', weight: 0.8}
+
+- name: AMQP broker
+  category: service
+  match:
+    - {nmap_service: '^amqp', nmap_version: true, weight: 0.85}
+
+- name: vsftpd
+  category: service
+  match:
+    - {nmap_product: 'vsftpd', nmap_version: true, weight: 0.95}
+
+- name: FTP server
+  category: service
+  match:
+    - {nmap_service: '^ftp$', weight: 0.85}

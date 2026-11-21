@@ -11,6 +11,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"html"
 	"io"
 	"net"
@@ -339,4 +341,29 @@ func (p *Prober) ProbeScan(ctx context.Context, s *result.Scan, parallel int) in
 	}
 	wg.Wait()
 	return len(jobs)
+}
+
+// FetchPath GETs one fixed path of a web service already probed (used by
+// fingerprinting, e.g. /wp-login.php). It does not follow redirects and
+// reuses the scheme and host the main probe settled on.
+func (p *Prober) FetchPath(ctx context.Context, h *result.Host, s *result.Service, path string) (*result.Page, error) {
+	if s.HTTP == nil || s.HTTP.Error != "" {
+		return nil, errors.New("service was not probed successfully")
+	}
+	base, err := url.Parse(s.HTTP.URL)
+	if err != nil {
+		return nil, err
+	}
+	u, err := base.Parse(path)
+	if err != nil || u.Host != base.Host {
+		return nil, fmt.Errorf("path %q leaves the service", path)
+	}
+	t := Target{Host: base.Hostname(), Addr: h.Address, Port: s.Port, Scheme: base.Scheme}
+	resp, err := p.get(ctx, p.client(t), u.String())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	return &result.Page{Path: path, Status: resp.StatusCode, Headers: headers(resp.Header), Title: title(body), Body: body}, nil
 }
