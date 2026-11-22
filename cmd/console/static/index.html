@@ -151,6 +151,33 @@ tbody tr:hover { background: var(--panel-2); }
 
 .analysis-box { background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; margin: 10px 0; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
 .analysis-meta { font-size: 11px; color: var(--faint); margin-top: 8px; font-family: var(--mono); white-space: normal; }
+
+.auth-wrap { max-width: 400px; margin: 8vh auto 0; }
+.auth-wrap .panel { padding: 28px; }
+.auth-wrap h2 { font-size: 18px; margin-bottom: 4px; }
+.auth-wrap .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+.auth-wrap label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 4px; font-weight: 600; }
+.auth-wrap input { width: 100%; }
+.auth-wrap .btn { width: 100%; margin-top: 18px; }
+.auth-err { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; }
+.auth-switch { text-align: center; margin-top: 14px; font-size: 13px; color: var(--muted); }
+
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; align-items: start; }
+@media (max-width: 1000px) { .settings-grid { grid-template-columns: 1fr; } }
+.settings-grid .panel { padding: 18px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.switch-row:last-child { border-bottom: none; }
+.switch-row .desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.toggle { position: relative; width: 44px; height: 24px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--panel-2); cursor: pointer; flex-shrink: 0; transition: background .15s; }
+.toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--faint); transition: left .15s, background .15s; }
+.toggle.on { background: var(--accent); border-color: var(--accent); }
+.toggle.on::after { left: 22px; background: #fff; }
+.form-row { margin: 12px 0; }
+.form-row label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+.form-row input { width: 100%; }
+.live-pill { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); font-weight: 700; }
+.user-menu { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.link-btn { background: none; border: none; color: var(--info); cursor: pointer; font-size: 13px; padding: 0; }
 </style>
 </head>
 <body>
@@ -164,13 +191,15 @@ tbody tr:hover { background: var(--panel-2); }
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
+    <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
   </nav>
   <div class="spacer"></div>
   <button class="theme-toggle" id="themeToggle" title="Przełącz motyw">☾</button>
   <span class="demo-badge" id="demoBadge" hidden>DANE DEMO</span>
+  <span class="pill live-pill" id="livePill" hidden><span class="dot green"></span> LIVE · tylko edge</span>
   <span class="pill" id="sensorPill"><span class="dot gray"></span> Sensor: …</span>
   <span class="clock" id="clock">akt. --:--:--</span>
-  <div class="user"><span class="avatar">JB</span> Janek Baumgart</div>
+  <div class="user-menu"><span class="avatar" id="userAvatar">…</span> <span id="userName">…</span> <button class="link-btn" onclick="doLogout()" title="Wyloguj">wyloguj</button></div>
 </header>
 
 <main class="page" id="app"></main>
@@ -178,7 +207,15 @@ tbody tr:hover { background: var(--panel-2); }
 <script>
 const $ = (sel, el=document) => el.querySelector(sel);
 const api = (path, opts) => fetch(path, opts).then(async r => {
-  if (!r.ok) throw new Error((await r.text()) || r.status);
+  if (!r.ok) {
+    const err = new Error((await r.text()) || r.status);
+    err.status = r.status;
+    if (r.status === 401 && !path.startsWith('/api/me') && !path.startsWith('/api/login') && !path.startsWith('/api/register')) {
+      session.user = null;
+      renderAuth();
+    }
+    throw err;
+  }
   return r.status === 204 ? null : r.json();
 });
 const post = (path, body) => api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
@@ -213,12 +250,76 @@ const state = {
   sensorFilters: {q: '', status: ''},
   sensorPage: 1,
   logs: {items: [], lastSeq: 0, paused: false, sensor: ''},
+  config: null,
   loading: true, sensorOnline: null, error: null,
 };
-const ACTOR = 'Janek Baumgart';
+const session = {user: null, hasUsers: true};
+let ACTOR = 'operator';
 
 function go(hash) { location.hash = hash; }
 window.addEventListener('hashchange', render);
+
+// --- auth ------------------------------------------------------------------
+function renderAuth(mode) {
+  // mode: undefined = zachowaj dotychczasowy, 'login' | 'register'
+  const hasUsers = session.hasUsers;
+  const m = mode || (hasUsers ? 'login' : 'register');
+  const app = $('#app');
+  document.querySelector('.topbar').style.display = 'none';
+  const isSetup = !hasUsers;
+  app.innerHTML = `
+    <div class="auth-wrap">
+      <div class="panel">
+        <h2>∿ Silence on the Wire</h2>
+        <div class="sub">${isSetup ? 'Pierwsze uruchomienie — utwórz konto administratora konsoli.' : (m === 'register' ? 'Załóż konto operatora.' : 'Zaloguj się do konsoli operatora.')}</div>
+        ${m === 'register' ? `
+          <label>LOGIN</label><input id="authLogin" autocomplete="username" placeholder="np. j.baumgart">
+          <label>IMIĘ I NAZWISKO</label><input id="authName" placeholder="np. Janek Baumgart">
+          <label>HASŁO (min. 6 znaków)</label><input id="authPass" type="password" autocomplete="new-password">
+          <button class="btn primary" onclick="doRegister()">${isSetup ? 'Utwórz konto administratora' : 'Zarejestruj'}</button>
+          ${hasUsers ? '<div class="auth-switch">Masz konto? <button class="link-btn" onclick="renderAuth(\'login\')">Zaloguj się</button></div>' : ''}
+        ` : `
+          <label>LOGIN</label><input id="authLogin" autocomplete="username" autofocus>
+          <label>HASŁO</label><input id="authPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+          <button class="btn primary" onclick="doLogin()">Zaloguj</button>
+          <div class="auth-switch">Nie masz konta? <button class="link-btn" onclick="renderAuth('register')">Zarejestruj się</button></div>
+        `}
+        <div class="auth-err" id="authErr"></div>
+      </div>
+      <p class="fineprint" style="text-align:center;margin-top:14px">Defensywny monitoring sieci · konta przechowywane lokalnie (PBKDF2-HMAC-SHA256)</p>
+    </div>`;
+}
+function authErr(t) { $('#authErr').textContent = t; }
+async function doLogin() {
+  try {
+    const me = await post('/api/login', {login: $('#authLogin').value.trim(), password: $('#authPass').value});
+    await enterApp(me);
+  } catch (e) { authErr(e.message); }
+}
+async function doRegister() {
+  try {
+    const me = await post('/api/register', {login: $('#authLogin').value.trim(), name: $('#authName').value.trim(), password: $('#authPass').value});
+    await enterApp(me);
+  } catch (e) { authErr(e.message); }
+}
+async function doLogout() {
+  try { await post('/api/logout', {}); } catch (e) {}
+  session.user = null;
+  location.hash = '';
+  renderAuth('login');
+}
+async function enterApp(me) {
+  session.user = me;
+  ACTOR = me.name;
+  $('#userName').textContent = me.name;
+  $('#userAvatar').textContent = me.name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
+  document.querySelector('.topbar').style.display = 'flex';
+  state.loading = true;
+  await refresh();
+  await pollLogs();
+  if (!location.hash) location.hash = '#/alerty';
+  render();
+}
 
 // --- data loading ----------------------------------------------------------
 async function refresh() {
@@ -232,6 +333,7 @@ async function refresh() {
     state.ai = ai;
     state.sensorOnline = summary.sensors.offline === 0 ? true : (summary.sensors.online > 0 ? 'partial' : false);
     $('#demoBadge').hidden = !summary.demo;
+    $('#livePill').hidden = !summary.live;
     updatePill();
     state.error = null;
   } catch (e) {
@@ -351,6 +453,7 @@ async function viewAlert(id) {
   const scores = env.systemone_scores || {};
   const feats = env.features || [];
   const pending = d.pending_action === 'isolate';
+  const isolated = (d.actions||[]).reduce((acc, a) => a.action === 'isolate' ? true : a.action === 'reconnect' ? false : acc, false);
   const aiNotes = (d.notes||[]).filter(n => (n.actor||'').startsWith('AI ·'));
   const ai = state.ai;
   const FEATURE_NAMES = ["host_new","host_silent","host_back","service_new","service_changed","service_closed","service_silent","service_back","risky_port","management_port","wellknown_port","has_banner","unusual_banner","changed_fingerprint","old_closed","gap_log_seconds","recent_count","recent_new_services","recent_changes","recent_silent","recent_returns","recent_distinct_ports","host_seen_before","service_event","hour_sin","hour_cos","repeated_port","previous_silent"];
@@ -402,16 +505,16 @@ async function viewAlert(id) {
       </div>
       <div>
         <div class="panel" style="margin-bottom:16px">
-          <h4>ANALIZA AI <span class="muted" style="font-weight:400;letter-spacing:0">${ai?.enabled ? esc(ai.model) + (ai.auto ? ' · autoanaliza nowych eskalacji' : '') : '· nie skonfigurowana'}</span></h4>
+          <h4>ANALIZA AI <span class="muted" style="font-weight:400;letter-spacing:0">${ai?.enabled ? esc(ai.model) + (ai.operator ? ' · tryb operatora (działa autonomicznie)' : ai.auto ? ' · autoanaliza nowych eskalacji' : '') : '· nie skonfigurowana'}</span></h4>
           ${ai?.enabled ? `
             ${aiNotes.length ? aiNotes.map(n => `
               <div class="analysis-box">${esc(n.text)}
                 <div class="analysis-meta">${fmtDateTime(n.at)} · ${esc(n.actor)}</div>
               </div>`).join('') : '<p class="muted" style="font-size:13px">Brak analizy dla tej sprawy. Uruchom ją ręcznie albo poczekaj na autoanalizę nowych eskalacji.</p>'}
             <button class="btn primary" style="width:100%;margin-top:6px" id="aiBtn" onclick="runAnalysis('${c.event_id}')">🤖 ${aiNotes.length ? 'Ponów analizę AI' : 'Uruchom analizę AI'}</button>
-            <p class="fineprint">Model analizuje kopertę eskalacji i ostatnie logi sensora. Analiza ma charakter doradczy — decyzję podejmuje operator. Dostawcę zmienisz zmiennymi ASI_AI_BASE_URL / ASI_AI_MODEL (działa z API kompatybilnym z OpenAI, także lokalnym).</p>
+            <p class="fineprint">Model analizuje kopertę eskalacji i ostatnie logi sensora. ${ai?.operator ? 'W trybie operatora AI sam ocenia zagrożenie i wykonuje działania — wszystkie audytowalne; odcięcie hosta zawsze potwierdza człowiek.' : 'Analiza ma charakter doradczy — decyzję podejmuje operator.'} Dostawcę zmienisz w Ustawieniach (API kompatybilne z OpenAI, także lokalny model).</p>
           ` : `
-            <p class="muted" style="font-size:13px">Analiza AI jest wyłączona. Ustaw <code>ASI_AI_API_KEY</code> (i opcjonalnie <code>ASI_AI_BASE_URL</code> / <code>ASI_AI_MODEL</code>) — obsługiwane jest każde API kompatybilne z OpenAI, również lokalny model.</p>
+            <p class="muted" style="font-size:13px">Analiza AI jest wyłączona. Skonfiguruj dostawcę w zakładce <a href="#/ustawienia">Ustawienia</a> (klucz API i adres) albo zmiennymi <code>ASI_AI_API_KEY</code> / <code>ASI_AI_BASE_URL</code> — obsługiwane jest każde API kompatybilne z OpenAI, również lokalny model.</p>
           `}
         </div>
         <div class="panel">
@@ -433,8 +536,9 @@ async function viewAlert(id) {
             <button class="btn" onclick="runAction('${c.event_id}','scan')">📡 Zleć aktywny skan hosta</button>
             <button class="btn" onclick="runAction('${c.event_id}','reanalyze')">↻ Ponów analizę modeli</button>
             <button class="btn danger ${pending?'armed':''}" id="isolateBtn" onclick="runAction('${c.event_id}','isolate')">⊘ ${pending?'Potwierdź: odetnij hosta od sieci':'Odetnij hosta od sieci'}</button>
+            ${isolated ? `<button class="btn primary" onclick="runAction('${c.event_id}','reconnect')">↩ Przywróć hosta do sieci</button>` : ''}
           </div>
-          <p class="fineprint">Akcja odcięcia jest dwustopniowa i zawsze potwierdzana przez człowieka. ${state.summary?.demo ? 'Prototyp działa w trybie demo i nie zmienia ruchu.' : ''}</p>
+          <p class="fineprint">Akcja odcięcia jest dwustopniowa i zawsze potwierdzana przez człowieka. ${isolated ? 'Host jest obecnie odcięty od sieci — możesz go przywrócić.' : ''} ${state.summary?.demo ? 'Prototyp działa w trybie demo i nie zmienia ruchu.' : ''}</p>
         </div>
       </div>
     </div>`;
@@ -556,24 +660,97 @@ function renderLogs() {
 }
 function viewLogs() { renderLogs(); }
 
+// --- settings --------------------------------------------------------------
+async function viewSettings() {
+  const app = $('#app');
+  app.innerHTML = skeleton();
+  let cfg, ai;
+  try {
+    [cfg, ai] = await Promise.all([api('/api/config'), api('/api/ai/status')]);
+  } catch (e) {
+    app.innerHTML = `<div class="panel" style="padding:24px;margin-top:16px"><h4 style="margin-bottom:8px">USTAWIENIA</h4><p class="muted">Ustawienia są dostępne tylko dla administratora konsoli.</p></div>`;
+    return;
+  }
+  state.config = cfg;
+  const demoOn = !!cfg.demo_feed;
+  const opOn = !!cfg.ai_operator;
+  app.innerHTML = `
+    <div class="settings-grid">
+      <div class="panel">
+        <h4>TRYB PRACY</h4>
+        <div class="switch-row">
+          <div><b>Syntetyczny feed demo</b><div class="desc">Gdy wyłączony, konsola przechodzi w tryb LIVE — feed pokazuje wyłącznie prawdziwe zdarzenia łapane przez edge (POST /logs, POST /events).</div></div>
+          <button class="toggle ${demoOn?'on':''}" id="tglDemo" onclick="saveConfig({demo_feed: ${!demoOn}})"></button>
+        </div>
+        <div class="switch-row">
+          <div><b>Autonomiczny operator AI</b><div class="desc">LLM ocenia zagrożenie i sam wykonuje działania operatorskie (status, notatka, obserwacja, skan, reanaliza). Odcięcie hosta AI tylko uzbraja — potwierdza je człowiek. Każda decyzja jest audytowalna z aktorem „AI · model (operator)".</div></div>
+          <button class="toggle ${opOn?'on':''}" id="tglOp" onclick="saveConfig({ai_operator: ${!opOn}})"></button>
+        </div>
+        <p class="fineprint" style="margin-top:12px">Zmiany działają natychmiast, są zapisywane trwale i trafiają do dziennika live.</p>
+      </div>
+      <div class="panel">
+        <h4>DOSTAWCA AI (API KOMPATYBILNE Z OPENAI)</h4>
+        <div class="form-row"><label>ADRES API (puste = domyślne https://api.openai.com/v1 albo lokalny model)</label>
+          <input id="cfgBaseUrl" placeholder="np. http://127.0.0.1:11434/v1" value="${esc(cfg.ai_base_url || '')}"></div>
+        <div class="form-row"><label>MODEL</label>
+          <input id="cfgModel" placeholder="${esc(cfg.ai_model_effective || 'gpt-4o-mini')}" value="${esc(cfg.ai_model || '')}"></div>
+        <div class="form-row"><label>KLUCZ API ${cfg.ai_api_key_set ? '(zapisany — wpisz nowy, aby podmienić)' : ''}</label>
+          <input id="cfgApiKey" type="password" placeholder="${cfg.ai_api_key_set ? '••••••••' : 'sk-…'}" value="">
+        <div class="fineprint" style="margin-top:6px">Dla lokalnych serwerów (Ollama, llama.cpp, vLLM, LM Studio) klucz zwykle nie jest wymagany — podaj sam adres. Klucz jest zapisywany lokalnie w settings.json i nigdy nie wraca do przeglądarki.</div></div>
+        <button class="btn primary" style="width:100%" onclick="saveAiConfig()">Zapisz konfigurację AI</button>
+        <p class="fineprint" style="margin-top:10px">Stan: ${ai?.enabled ? `aktywny — ${esc(ai.model)} @ ${esc(ai.base_url)}${ai.operator ? ' · tryb operatora' : ai.auto ? ' · autoanaliza' : ''}` : 'nieskonfigurowany — analizy AI wyłączone'}</p>
+      </div>
+    </div>`;
+}
+async function saveConfig(patch) {
+  try {
+    await post('/api/config', patch);
+    render();
+  } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
+}
+async function saveAiConfig() {
+  const patch = {};
+  const base = $('#cfgBaseUrl').value.trim();
+  const model = $('#cfgModel').value.trim();
+  const key = $('#cfgApiKey').value.trim();
+  patch.ai_base_url = base;
+  patch.ai_model = model;
+  if (key) patch.ai_api_key = key;
+  try {
+    await post('/api/config', patch);
+    await refresh();
+    render();
+  } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
+}
+
 // --- router ----------------------------------------------------------------
 async function render() {
+  if (!session.user) return; // auth screen is up
   const h = location.hash || '#/alerty';
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
     h.startsWith('#/sensory') ? t.dataset.nav === 'sensory'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
+    : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
   if (h.startsWith('#/sensory')) return viewSensors();
   if (h.startsWith('#/logi')) return viewLogs();
+  if (h.startsWith('#/ustawienia')) return viewSettings();
   if (h.startsWith('#/alerta/')) return viewAlert(decodeURIComponent(h.slice(9)));
   return viewAlerts();
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi')) render(); }, 10000);
-setInterval(pollLogs, 3000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia')) render(); }, 10000);
+setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
-(async () => { await refresh(); await pollLogs(); render(); })();
+(async () => {
+  try {
+    const me = await api('/api/me');
+    session.hasUsers = me.has_users;
+    if (me.authenticated) return enterApp(me);
+  } catch (e) {}
+  renderAuth();
+})();
 </script>
 </body>
 </html>

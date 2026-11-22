@@ -88,13 +88,18 @@ func relightDemo(store *Store) {
 }
 
 // startDemoLogs appends synthetic raw sensor log lines to the live feed every
-// few seconds, in the exact NDJSON shape the passive sensor ships.
-func startDemoLogs(feed *LiveFeed, store *Store) {
+// few seconds, in the exact NDJSON shape the passive sensor ships. It runs
+// only while the demo feed is enabled — switching the console to live mode
+// (the demo toggle in settings) stops it immediately.
+func startDemoLogs(feed *LiveFeed, store *Store, active func() bool) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	types := []string{"service_silent", "host_silent", "host_new", "service_new", "service_changed", "host_back", "service_back", "host_silent", "service_silent"}
 	ports := []int{22, 80, 443, 445, 3389, 5900, 8080}
 	go func() {
 		for range time.Tick(2 * time.Second) {
+			if !active() {
+				continue // live mode: only real edge events reach the feed
+			}
 			if rng.Intn(3) == 0 {
 				continue // irregular cadence, like a real passive sensor
 			}

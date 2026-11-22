@@ -87,6 +87,7 @@ services:
       ASI_AI_BASE_URL: ${ASI_AI_BASE_URL:-}
       ASI_AI_API_KEY: ${ASI_AI_API_KEY:-}
       ASI_AI_MODEL: ${ASI_AI_MODEL:-}
+      ASI_AI_OPERATOR: ${ASI_AI_OPERATOR:-}
     ports: ["127.0.0.1:18081:8080"]
     volumes: ["console-data:/data"]
   gate:

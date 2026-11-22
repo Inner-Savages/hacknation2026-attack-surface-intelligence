@@ -236,8 +236,10 @@ The operator workflow mirrors the escalation envelope:
   UI states plainly that scores are a verification hint, not a verdict.
 - **Actions**: reinforce observation, order an active scan, rerun model
   analysis, and isolate the host. Isolation is **two-step and always
-  human-confirmed**; in demo mode actions are recorded in the audit trail but
-  never touch traffic, exactly as the banner says.
+  human-confirmed**; a cut-off host can be restored to the network with the
+  single-step, audited *przywróć do sieci* action. In demo mode actions are
+  recorded in the audit trail but never touch traffic, exactly as the
+  banner says.
 
 The UI ships light and dark themes (light is the default) and is embedded in
 the binary — no build step, no JavaScript dependencies. Run it in Docker as
@@ -276,6 +278,34 @@ button in the case view) and automatically for every new escalation when a
 provider is configured (`-ai-auto`, on by default). Each analysis is stored
 as a case note and a history entry under the actor `AI · <model>` — advisory
 only; every executable decision stays with the human operator.
+
+### Accounts, configuration and the AI operator mode
+
+The console has its own operator accounts: the first registered account
+becomes the administrator, passwords are stored locally as
+PBKDF2-HMAC-SHA256 (no external identity dependency), and sessions are
+HttpOnly cookies. All operator APIs require a session; the machine intake
+(`POST /events`, `POST /logs`) keeps its bearer-token contract.
+
+The **Ustawienia** tab (admin) persists runtime configuration in
+`settings.json` and mirrors every change into the live feed:
+
+- **Demo/live switch** — turns the synthetic demo feed off; from then on the
+  dashboard shows only real events captured by the edge sensors. The banner
+  flips to "LIVE · tylko edge".
+- **AI provider** — base URL, model and API key are editable from the UI
+  (the key is write-only and never returned to the browser), so a local
+  model is a two-field change: address `http://<host>:11434/v1`, no key.
+- **AI operator mode** (`-ai-operator` / `ASI_AI_OPERATOR` or the toggle):
+  the configured LLM orchestrates the platform as an autonomous operator.
+  For every escalation it returns a structured verdict (threat level,
+  confidence, status, justification, action) and the console executes it
+  through the *same* audited mutations a human uses — statuses, notes,
+  observation, active scans and re-analysis all land in the case history,
+  the audit log and the live feed under the actor `AI · <model> (operator)`.
+  The one exception is host isolation: the AI may only **arm** it. A human
+  must confirm, so the most destructive action always keeps a person in the
+  loop.
 
 ## Model interchange and the System One standard
 
