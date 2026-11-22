@@ -40,7 +40,7 @@ type settings struct {
 
 func openSettings(dir string) (*settings, error) {
 	s := &settings{path: filepath.Join(dir, "settings.json")}
-	b, err := os.ReadFile(s.path)
+	b, err := rest.ReadFile(s.path)
 	if os.IsNotExist(err) {
 		return s, nil
 	}
@@ -59,11 +59,7 @@ func (s *settings) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return rest.WriteFile(s.path, b, 0o600)
 }
 
 // configPatch is a partial update from the UI: nil fields keep their current

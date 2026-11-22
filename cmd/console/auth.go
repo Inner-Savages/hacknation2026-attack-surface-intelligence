@@ -35,6 +35,7 @@ type user struct {
 	Salt      string `json:"salt"`
 	Hash      string `json:"hash"`
 	Admin     bool   `json:"admin"`
+	Role      string `json:"role,omitempty"` // RBAC role; Admin mirrors Role=="admin"
 	CreatedAt string `json:"created_at"`
 }
 
@@ -57,7 +58,7 @@ func openAuth(dir string) (*auth, error) {
 		users:    map[string]*user{},
 		sessions: map[string]*session{},
 	}
-	b, err := os.ReadFile(a.path)
+	b, err := rest.ReadFile(a.path)
 	if os.IsNotExist(err) {
 		return a, nil
 	}
@@ -69,6 +70,14 @@ func openAuth(dir string) (*auth, error) {
 		return nil, fmt.Errorf("corrupt users.json")
 	}
 	for _, u := range list {
+		// Accounts from before RBAC: admins stay admins, operators keep
+		// working rights as analysts.
+		if u.Role == "" {
+			u.Role = defaultRole
+			if u.Admin {
+				u.Role = "admin"
+			}
+		}
 		a.users[strings.ToLower(u.Login)] = u
 	}
 	return a, nil
@@ -117,11 +126,7 @@ func (a *auth) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := a.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, a.path)
+	return rest.WriteFile(a.path, b, 0o600)
 }
 
 // register creates an account. The very first account becomes the admin.
@@ -148,7 +153,11 @@ func (a *auth) register(login, name, password string) (*user, error) {
 		Login: login, Name: name, Salt: salt,
 		Hash:      base64.RawStdEncoding.EncodeToString(pbkdf2Key(password, salt, pbkdf2Rounds)),
 		Admin:     len(a.users) == 0, // first operator administers the console
+		Role:      defaultRole,
 		CreatedAt: time.Now().Format(time.RFC3339),
+	}
+	if u.Admin {
+		u.Role = "admin"
 	}
 	a.users[key] = u
 	if err := a.persistLocked(); err != nil {
@@ -246,6 +255,11 @@ func (a *auth) setAdmin(login string, admin bool) error {
 		}
 	}
 	u.Admin = admin
+	if admin {
+		u.Role = "admin"
+	} else if u.Role == "admin" {
+		u.Role = defaultRole
+	}
 	for _, s := range a.sessions {
 		if s.Login == u.Login {
 			s.Admin = admin
@@ -288,4 +302,52 @@ func (a *auth) logout(token string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.sessions, token)
+}
+
+// roleOf returns the RBAC role of an account ("" when unknown).
+func (a *auth) roleOf(login string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if u, ok := a.users[strings.ToLower(login)]; ok {
+		return u.Role
+	}
+	return ""
+}
+
+// setRole assigns a role. Moving the last admin out of "admin" is refused.
+func (a *auth) setRole(login, role string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	u, ok := a.users[strings.ToLower(strings.TrimSpace(login))]
+	if !ok {
+		return fmt.Errorf("nie ma takiego operatora")
+	}
+	if u.Role == "admin" && role != "admin" {
+		admins := 0
+		for _, x := range a.users {
+			if x.Role == "admin" {
+				admins++
+			}
+		}
+		if admins <= 1 {
+			return fmt.Errorf("nie można odebrać roli administratora ostatniemu administratorowi")
+		}
+	}
+	u.Role = role
+	u.Admin = role == "admin"
+	for _, s := range a.sessions {
+		if s.Login == u.Login {
+			s.Admin = u.Admin
+		}
+	}
+	return a.persistLocked()
+}
+
+// usersWithRoles lists accounts with their roles for the admin panel.
+func (a *auth) usersWithRoles() []map[string]string {
+	out := []map[string]string{}
+	for _, u := range a.list() {
+		out = append(out, map[string]string{"login": u.Login, "name": u.Name, "role": u.Role, "created_at": u.CreatedAt})
+	}
+	return out
 }

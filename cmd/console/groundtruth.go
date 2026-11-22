@@ -83,7 +83,7 @@ type hostRegistry struct {
 
 func openHostRegistry(dir string) (*hostRegistry, error) {
 	r := &hostRegistry{path: filepath.Join(dir, "hosts.json"), hosts: map[string]*HostRecord{}}
-	b, err := os.ReadFile(r.path)
+	b, err := rest.ReadFile(r.path)
 	if os.IsNotExist(err) {
 		return r, nil
 	}
@@ -173,11 +173,7 @@ func (r *hostRegistry) save() error {
 	if err != nil {
 		return err
 	}
-	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, r.path); err != nil {
+	if err := rest.WriteFile(r.path, b, 0o600); err != nil {
 		return err
 	}
 	r.dirty = false

@@ -193,6 +193,7 @@ tbody tr:hover { background: var(--panel-2); }
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
     <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
     <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
+    <button class="tab" data-nav="role" id="tabRole" onclick="go('#/role')" hidden>Role</button>
   </nav>
   <div class="spacer"></div>
   <button class="theme-toggle" id="themeToggle" title="Przełącz motyw">☾</button>
@@ -205,6 +206,7 @@ tbody tr:hover { background: var(--panel-2); }
 
 <main class="page" id="app"></main>
 
+<script src="rbac.js"></script>
 <script>
 const $ = (sel, el=document) => el.querySelector(sel);
 const api = (path, opts) => fetch(path, opts).then(async r => {
@@ -316,6 +318,7 @@ async function enterApp(me) {
   $('#userAvatar').textContent = me.name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
   document.querySelector('.topbar').style.display = 'flex';
   state.loading = true;
+  if (window.rbacInit) await rbacInit();
   await refresh();
   await pollLogs();
   if (!location.hash) location.hash = '#/alerty';
@@ -925,12 +928,13 @@ async function render() {
   if (h.startsWith('#/logi')) return viewLogs();
   if (h.startsWith('#/reguly')) return viewRules();
   if (h.startsWith('#/ustawienia')) return viewSettings();
+  if (h.startsWith('#/role')) return viewRoles();
   if (h.startsWith('#/alerta/')) return viewAlert(decodeURIComponent(h.slice(9)));
   return viewAlerts();
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/role')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {

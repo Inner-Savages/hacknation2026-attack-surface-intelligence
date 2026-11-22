@@ -51,7 +51,7 @@ type ruleStore struct {
 
 func openRules(dir string) (*ruleStore, error) {
 	rs := &ruleStore{path: filepath.Join(dir, "rules.json"), rules: []*Rule{}}
-	b, err := os.ReadFile(rs.path)
+	b, err := rest.ReadFile(rs.path)
 	if os.IsNotExist(err) {
 		// First run: seed the starter rules so the engine is useful out of
 		// the box. The list is persisted, so operators can edit or delete it.
@@ -159,11 +159,7 @@ func (rs *ruleStore) replace(rules []*Rule) error {
 	if err != nil {
 		return err
 	}
-	tmp := rs.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, rs.path); err != nil {
+	if err := rest.WriteFile(rs.path, b, 0o600); err != nil {
 		return err
 	}
 	rs.rules = rules
