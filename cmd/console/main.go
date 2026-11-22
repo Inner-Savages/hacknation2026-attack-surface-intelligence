@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -67,6 +68,13 @@ func main() {
 		store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demoData: *demo, feed: feed,
 		operator: *operator, aiAuto: *aiAuto, aiOpDefault: *aiOperator, demoDefault: *demo,
 		auth: userAuth, settings: cfg, rules: rules,
+		registrationClosed: !envBool("ASI_ALLOW_REGISTRATION", true),
+	}
+	if err := seedAccounts(userAuth); err != nil {
+		log.Fatalf("seed accounts: %v", err)
+	}
+	if srv.registrationClosed {
+		log.Printf("self-registration disabled (ASI_ALLOW_REGISTRATION=false)")
 	}
 	// Ground truth: periodic active control scans of passively silent hosts,
 	// so the silent_stealth observability gap is measured, not invisible.
@@ -147,6 +155,17 @@ func main() {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+// envBool reads a boolean variable; unset or unparsable values give fallback.
+func envBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
 	}
 	return fallback
 }

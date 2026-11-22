@@ -131,6 +131,12 @@ func (a *auth) persistLocked() error {
 
 // register creates an account. The very first account becomes the admin.
 func (a *auth) register(login, name, password string) (*user, error) {
+	return a.create(login, name, password, "")
+}
+
+// create is register with an explicit role; "" means the default (admin for
+// the very first account, analyst afterwards).
+func (a *auth) create(login, name, password, role string) (*user, error) {
 	login = strings.TrimSpace(login)
 	name = strings.TrimSpace(name)
 	if len(login) < 3 || strings.ContainsAny(login, " \t\n") {
@@ -158,6 +164,9 @@ func (a *auth) register(login, name, password string) (*user, error) {
 	}
 	if u.Admin {
 		u.Role = "admin"
+	}
+	if role != "" {
+		u.Role, u.Admin = role, role == "admin"
 	}
 	a.users[key] = u
 	if err := a.persistLocked(); err != nil {

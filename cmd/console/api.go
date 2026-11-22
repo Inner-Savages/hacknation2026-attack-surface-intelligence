@@ -83,6 +83,10 @@ type server struct {
 
 	roles *roleStore
 	audit *auditLog
+
+	// registrationClosed turns off self-service sign-up (ASI_ALLOW_REGISTRATION=false).
+	// The very first account can still be created while no user exists.
+	registrationClosed bool
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -186,6 +190,10 @@ func (s *server) needAdmin(h http.Handler) http.Handler {
 // --- accounts --------------------------------------------------------------
 
 func (s *server) register(w http.ResponseWriter, r *http.Request) {
+	if s.registrationClosed && s.auth.hasUsers() {
+		http.Error(w, "registration is disabled", 403)
+		return
+	}
 	m := decodeBody(w, r)
 	u, err := s.auth.register(m["login"], m["name"], m["password"])
 	if err != nil {
@@ -221,10 +229,10 @@ func (s *server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 // account — the UI routes to the setup, login or dashboard screen on it.
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	if sess := s.auth.who(r); sess != nil {
-		writeJSON(w, 200, map[string]interface{}{"authenticated": true, "login": sess.Login, "name": sess.Name, "admin": sess.Admin, "has_users": true})
+		writeJSON(w, 200, map[string]interface{}{"authenticated": true, "login": sess.Login, "name": sess.Name, "admin": sess.Admin, "has_users": true, "registration_open": !s.registrationClosed})
 		return
 	}
-	writeJSON(w, 200, map[string]interface{}{"authenticated": false, "has_users": s.auth.hasUsers()})
+	writeJSON(w, 200, map[string]interface{}{"authenticated": false, "has_users": s.auth.hasUsers(), "registration_open": !s.registrationClosed || !s.auth.hasUsers()})
 }
 
 // users lists operator accounts for the admin's settings panel.

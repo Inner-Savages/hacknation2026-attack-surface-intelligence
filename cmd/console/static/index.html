@@ -292,7 +292,7 @@ const state = {
   config: null,
   loading: true, sensorOnline: null, error: null,
 };
-const session = {user: null, hasUsers: true};
+const session = {user: null, hasUsers: true, registrationOpen: true};
 let ACTOR = 'operator';
 
 function go(hash) { location.hash = hash; }
@@ -321,7 +321,7 @@ function renderAuth(mode) {
           <label>LOGIN</label><input id="authLogin" autocomplete="username" autofocus>
           <label>HASŁO</label><input id="authPass" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
           <button class="btn primary" onclick="doLogin()">Zaloguj</button>
-          <div class="auth-switch">Nie masz konta? <button class="link-btn" onclick="renderAuth('register')">Zarejestruj się</button></div>
+          ${session.registrationOpen ? '<div class="auth-switch">Nie masz konta? <button class="link-btn" onclick="renderAuth(\'register\')">Zarejestruj się</button></div>' : ''}
         `}
         <div class="auth-err" id="authErr"></div>
       </div>
@@ -1291,6 +1291,7 @@ setInterval(() => { if (session.user) pollLogs(); }, 3000);
   try {
     const me = await api('/api/me');
     session.hasUsers = me.has_users;
+    session.registrationOpen = me.registration_open !== false;
     if (me.authenticated) return enterApp(me);
   } catch (e) {}
   renderAuth();
