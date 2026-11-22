@@ -67,12 +67,18 @@ type Policy struct {
 	ClosedCooldown time.Duration  // default 5m when only "closed" events arrived
 	MaxPerMinute   int            // default 10 scans started per minute
 	MaxPending     int            // default 1000 waiting jobs
+	// VerifyBackoff: after a verification found the target alive, further
+	// "it went quiet" events for it are ignored this long (default 30m).
+	// Otherwise a host nobody talks to is re-verified forever: the scan
+	// wakes it up, a minute later it is silent again.
+	VerifyBackoff time.Duration
 
 	pending  map[Target]*Job
 	running  map[Target]bool
 	lastEnd  map[Target]time.Time     // per target: cooldown
 	busyIP   map[netip.Addr]int       // scans in progress per address: quiet
 	quietIP  map[netip.Addr]time.Time // last scan end per address: quiet
+	aliveAt  map[Target]time.Time     // verified alive: skip silence checks
 	started  []time.Time
 	Counters map[string]int // accepted, and drop reasons
 }
@@ -84,6 +90,7 @@ func (p *Policy) init() {
 		p.lastEnd = map[Target]time.Time{}
 		p.busyIP = map[netip.Addr]int{}
 		p.quietIP = map[netip.Addr]time.Time{}
+		p.aliveAt = map[Target]time.Time{}
 		p.Counters = map[string]int{}
 	}
 }
@@ -136,6 +143,11 @@ func (p *Policy) Offer(e sensor.Event, now time.Time) (bool, string) {
 	}
 	if end, ok := p.quietIP[t.IP]; ok && now.Sub(end) < or(p.Quiet, 15*time.Second) {
 		return p.drop("quiet: address just scanned")
+	}
+	if kind == VerifyService || kind == VerifyHost {
+		if at, ok := p.aliveAt[t]; ok && now.Sub(at) < or(p.VerifyBackoff, 30*time.Minute) {
+			return p.drop("verified alive recently")
+		}
 	}
 
 	// A pending host scan covers every port of that host: let service
@@ -232,9 +244,15 @@ func (p *Policy) Take(now time.Time, free int) []Job {
 	return out
 }
 
-// Done records that a target's scan finished.
-func (p *Policy) Done(t Target, now time.Time) {
+// Done records that a target's scan finished. alive is true when a
+// verification found the target still there.
+func (p *Policy) Done(t Target, now time.Time, alive bool) {
 	p.init()
+	if alive {
+		p.aliveAt[t] = now
+	} else {
+		delete(p.aliveAt, t)
+	}
 	if p.running[t] {
 		delete(p.running, t)
 		if p.busyIP[t.IP]--; p.busyIP[t.IP] <= 0 {
