@@ -179,6 +179,40 @@ tbody tr:hover { background: var(--panel-2); }
 .live-pill { border-color: var(--accent); color: var(--accent-text); background: var(--accent-soft); font-weight: 700; }
 .user-menu { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .link-btn { background: none; border: none; color: var(--info); cursor: pointer; font-size: 13px; padding: 0; }
+
+/* --- attack surface map --------------------------------------------------- */
+.map-toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 16px 0 12px; }
+.map-toolbar .tl { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 10px; }
+.map-toolbar input[type="range"] { flex: 1; accent-color: var(--accent); }
+.map-toolbar .tl-time { font-family: var(--mono); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.map-grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .map-grid { grid-template-columns: 1fr; } }
+.map-canvas { padding: 16px; min-height: 300px; }
+.map-subnet { margin-bottom: 18px; }
+.map-subnet h5 { font-size: 11px; letter-spacing: 1px; color: var(--muted); font-weight: 600; margin-bottom: 8px; font-family: var(--mono); }
+.map-hosts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.map-host { border: 1px solid var(--border); border-left: 3px solid var(--faint); border-radius: 8px; padding: 8px 10px; cursor: pointer; background: var(--panel-2); transition: border-color .15s, opacity .3s; }
+.map-host:hover { border-color: var(--border-strong); }
+.map-host.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+.map-host.st-active { border-left-color: var(--accent); }
+.map-host.st-silent { border-left-color: var(--warn); }
+.map-host.st-changed { border-left-color: var(--danger); background: var(--danger-soft); }
+.map-host.st-offline { border-left-color: var(--faint); border-style: dashed; opacity: .55; }
+.map-host .ip { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.map-host .meta { font-size: 10.5px; color: var(--faint); margin-top: 1px; }
+.map-svcs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.map-svc { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--muted); background: var(--panel); }
+.map-svc.silent { opacity: .5; text-decoration: line-through; }
+.map-side .panel { padding: 14px; }
+.map-ev { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; align-items: baseline; }
+.map-ev:last-child { border-bottom: none; }
+.map-ev .t { font-family: var(--mono); font-size: 10.5px; color: var(--faint); white-space: nowrap; }
+.map-ev .dot { flex-shrink: 0; margin-top: 4px; }
+.map-ev .txt { word-break: break-word; }
+.map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 10px; }
+.map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.map-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.map-ev-list { max-height: 55vh; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -189,11 +223,14 @@ tbody tr:hover { background: var(--panel-2); }
   </div>
   <nav class="tabs" style="padding:0">
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
+    <button class="tab" data-nav="mapa" onclick="go('#/mapa')">Mapa</button>
+    <button class="tab" data-nav="ekspozycja" onclick="go('#/ekspozycja')">Ekspozycja</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
     <button class="tab" data-nav="cele" onclick="go('#/cele')">Cele i import</button>
     <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
     <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
+    <button class="tab" data-nav="role" id="tabRole" onclick="go('#/role')" hidden>Role</button>
   </nav>
   <div class="spacer"></div>
   <button class="theme-toggle" id="themeToggle" title="Przełącz motyw">☾</button>
@@ -206,6 +243,7 @@ tbody tr:hover { background: var(--panel-2); }
 
 <main class="page" id="app"></main>
 
+<script src="rbac.js"></script>
 <script>
 const $ = (sel, el=document) => el.querySelector(sel);
 const api = (path, opts) => fetch(path, opts).then(async r => {
@@ -317,6 +355,7 @@ async function enterApp(me) {
   $('#userAvatar').textContent = me.name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase();
   document.querySelector('.topbar').style.display = 'flex';
   state.loading = true;
+  if (window.rbacInit) await rbacInit();
   await refresh();
   await pollLogs();
   if (!location.hash) location.hash = '#/alerty';
@@ -827,11 +866,35 @@ async function viewSettings() {
           <input id="gtSilent" type="number" min="1" value="${cfg.gt_silent_min ?? 60}"></div>
         <div class="form-row"><label>PRÓBKA NA SKAN (hostów, najdłużej cichych)</label>
           <input id="gtSample" type="number" min="1" value="${cfg.gt_sample_size ?? 50}"></div>
+        <div class="switch-row">
+          <div><b>Wzbogacanie o CVE (NVD + EPSS)</b><div class="desc">Wykryte usługi i wersje są tłumaczone na CPE i odpytywane w NVD; sprawy dostają ranking realnego ryzyka wg EPSS z flagą CISA KEV. Odpytuje zewnętrzne API; wyniki są cache'owane na dysku. Zmienna NVD_API_KEY podnosi limit zapytań.</div></div>
+          <button class="toggle ${cfg.cve_lookup!==false?'on':''}" onclick="saveConfig({cve_lookup: ${cfg.cve_lookup===false}})"></button>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="btn primary" style="flex:1" onclick="saveGtConfig()">Zapisz politykę</button>
           <button class="btn" style="flex:1" onclick="runGroundTruth()">Uruchom teraz</button>
         </div>
         <p class="fineprint" style="margin-top:10px">${gt ? `Rejestr pasywny: ${gt.registry_hosts ?? 0} hostów · ${gt.running ? 'skan w toku…' : (gt.last_summary ? 'Ostatni ' + esc(gt.last_summary) : 'jeszcze nie skanowano')}` : 'Ground truth niedostępny'}</p>
+      </div>
+      <div class="panel">
+        <h4>EKSPozycja (SHODAN / CENSYS)</h4>
+        <div class="switch-row">
+          <div><b>Korelacja z widokiem zewnętrznym</b><div class="desc">Sensor widzi sieć od środka; Shodan/Censys widzą, co z niej wystawione jest na świat. Diff „wnętrze vs internet" wykrywa shadow IT i przypadkowe ekspozycje — nowa usługa widoczna z zewnątrz to alert najwyższej wagi. Domyślnie wyłączone: konsola odpytuje zewnętrzne API o publiczne IP.</div></div>
+          <button class="toggle ${cfg.exposure_enabled?'on':''}" onclick="saveConfig({exposure_enabled: ${!cfg.exposure_enabled}})"></button>
+        </div>
+        <div class="form-row"><label>DOSTAWCA</label>
+          <select id="expProvider" style="width:100%">
+            <option value="shodan" ${(cfg.exposure_provider||'shodan')==='shodan'?'selected':''}>Shodan (hashy favicon mmh3 — takie same jak skanera)</option>
+            <option value="censys" ${cfg.exposure_provider==='censys'?'selected':''}>Censys (widok hosta v2)</option>
+          </select></div>
+        <div class="form-row"><label>KLUCZ API ${cfg.exposure_key_set ? '(zapisany — wpisz nowy, aby podmienić)' : ''}</label>
+          <input id="expApiKey" type="password" placeholder="${cfg.exposure_key_set ? '••••••••' : 'klucz Shodan albo api-id:api-secret dla Censys'}" value="">
+        <div class="fineprint" style="margin-top:6px">Zapisywany lokalnie, nigdy nie wraca do przeglądarki. Zamiast niego działają też zmienne SHODAN_API_KEY lub CENSYS_API_ID + CENSYS_API_SECRET.</div></div>
+        <div class="form-row"><label>PUBLICZNE IP (puste = wykryj automatycznie)</label>
+          <input id="expPublicIP" placeholder="np. 203.0.113.10" value="${esc(cfg.exposure_public_ip || '')}"></div>
+        <div class="form-row"><label>INTERWAŁ KONTROLI (minuty)</label>
+          <input id="expInterval" type="number" min="15" value="${cfg.exposure_interval_min || 360}"></div>
+        <button class="btn primary" style="width:100%" onclick="saveExposureConfig()">Zapisz konfigurację ekspozycji</button>
       </div>
       <div class="panel">
         <h4>DOSTAWCA AI (API KOMPATYBILNE Z OPENAI)</h4>
@@ -892,6 +955,19 @@ async function runGroundTruth() {
   } catch (e) { alert('Nie udało się uruchomić skanu: ' + e.message); }
 }
 async function saveConfig(patch) {
+  try {
+    await post('/api/config', patch);
+    render();
+  } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
+}
+async function saveExposureConfig() {
+  const patch = {
+    exposure_provider: $('#expProvider').value,
+    exposure_public_ip: $('#expPublicIP').value.trim(),
+    exposure_interval_min: parseInt($('#expInterval').value, 10) || 0,
+  };
+  const key = $('#expApiKey').value.trim();
+  if (key) patch.exposure_api_key = key;
   try {
     await post('/api/config', patch);
     render();
@@ -1035,6 +1111,277 @@ async function importFile() {
       : `Cele: dodano ${r.added}, duplikatów ${r.duplicates}, odrzucono ${r.rejected}.` + (r.problems?.length ? '\n' + r.problems.join('\n') : '');
   } catch (e) { inv.msg = 'Błąd importu: ' + e.message; }
   render();
+// --- attack surface map ----------------------------------------------------
+// The map replays the topology journal: host/service appearances, silence,
+// control-scan verdicts. The scrubber moves time; the graph shows the state
+// of the network at that moment.
+const mapState = {data: null, t: null, playing: false, timer: null, selected: null};
+
+const MAP_EV = {
+  host_new:       {label: 'host pojawił się',       dot: 'green'},
+  host_silent:    {label: 'host zamilkł',           dot: 'orange'},
+  host_active:    {label: 'host znowu aktywny',     dot: 'green'},
+  service_new:    {label: 'nowa usługa',            dot: 'green'},
+  service_silent: {label: 'usługa zamilkła',        dot: 'orange'},
+  gt_quiet:       {label: 'skan: zweryfikowany cichy', dot: 'green'},
+  gt_changed:     {label: 'skan: ZMIANA w ciszy',   dot: 'red'},
+  gt_unreachable: {label: 'skan: nieosiągalny',     dot: 'gray'},
+  exposure_new:   {label: 'ekspozycja zewnętrzna',  dot: 'red'},
+};
+
+async function viewMap() {
+  const app = $('#app');
+  stopMapPlay();
+  if (!mapState.data) {
+    app.innerHTML = '<div class="loading-line"><div class="spinner"></div> Ładuję mapę powierzchni ataku…</div>';
+    try { mapState.data = await api('/api/map'); }
+    catch (e) { app.innerHTML = `<div class="empty"><h3>Nie udało się pobrać mapy</h3><p>${esc(e.message)}</p></div>`; return; }
+  }
+  const data = mapState.data;
+  const events = (data.events || []).slice().sort((a, b) => new Date(a.time) - new Date(b.time));
+  const hosts = data.hosts || [];
+  if (!hosts.length && !events.length) {
+    app.innerHTML = `<div class="empty"><div class="waves">∿∿∿</div>
+      <h3>Mapa jest jeszcze pusta</h3>
+      <p>Graf buduje się z pasywnego rejestru sensora — hosty i usługi pojawią się tutaj, gdy edge zacznie raportować zdarzenia.</p></div>`;
+    return;
+  }
+  const tMin = events.length ? new Date(events[0].time).getTime()
+    : Math.min(...hosts.map(h => new Date(h.first_seen).getTime()));
+  const tMax = Date.now();
+  if (mapState.t === null || mapState.t > tMax) mapState.t = tMax;
+  const atLive = mapState.t >= tMax - 5000;
+
+  app.innerHTML = `
+    <div class="map-toolbar">
+      <button class="btn" id="mapPlay">${mapState.playing ? '⏸ Pauza' : '▶ Odtwórz'}</button>
+      <div class="tl">
+        <input type="range" id="mapRange" min="${tMin}" max="${tMax}" step="1000" value="${mapState.t}">
+        <span class="tl-time" id="mapTime"></span>
+      </div>
+      <button class="btn ${atLive ? 'primary' : ''}" id="mapLive">Na żywo</button>
+      <button class="btn" id="mapReload">Odśwież dane</button>
+    </div>
+    <div class="map-grid">
+      <div class="panel map-canvas" id="mapCanvas"></div>
+      <div class="map-side"><div class="panel" id="mapSide"></div></div>
+    </div>
+    <div class="map-legend">
+      <span><i style="background:var(--accent)"></i> aktywny</span>
+      <span><i style="background:var(--warn)"></i> cichy pasywnie</span>
+      <span><i style="background:var(--danger)"></i> zmiana wykryta skanem</span>
+      <span><i style="background:var(--faint)"></i> nieosiągalny</span>
+    </div>`;
+
+  $('#mapRange').oninput = e => { mapState.t = parseInt(e.target.value, 10); mapState.selected = null; drawMap(); };
+  $('#mapLive').onclick = () => { mapState.t = Date.now(); mapState.selected = null; drawMap(); };
+  $('#mapReload').onclick = async () => { mapState.data = null; mapState.t = null; await viewMap(); };
+  $('#mapPlay').onclick = () => toggleMapPlay(tMin);
+  drawMap();
+}
+
+function toggleMapPlay(tMin) {
+  if (mapState.playing) { stopMapPlay(); $('#mapPlay').textContent = '▶ Odtwórz'; return; }
+  // At the live edge play restarts the drift story from the beginning.
+  if (mapState.t >= Date.now() - 2000) mapState.t = tMin;
+  mapState.playing = true;
+  $('#mapPlay').textContent = '⏸ Pauza';
+  const range = Date.now() - tMin;
+  const step = Math.max(range / 150, 1000);
+  mapState.timer = setInterval(() => {
+    mapState.t += step;
+    if (mapState.t >= Date.now()) { mapState.t = Date.now(); stopMapPlay(); const b = $('#mapPlay'); if (b) b.textContent = '▶ Odtwórz'; }
+    drawMap();
+  }, 120);
+}
+function stopMapPlay() {
+  mapState.playing = false;
+  if (mapState.timer) { clearInterval(mapState.timer); mapState.timer = null; }
+}
+
+// mapReplay folds the journal up to time T into per-host states.
+function mapReplay(events, hosts, T) {
+  const st = {};
+  const ensure = ip => st[ip] || (st[ip] = {status: 'active', services: {}, sensor: '', gt: ''});
+  for (const ev of events) {
+    if (new Date(ev.time).getTime() > T) break;
+    const h = ensure(ev.ip);
+    if (ev.sensor_id) h.sensor = ev.sensor_id;
+    const key = ev.port ? ev.port + '/' + (ev.proto || 'tcp') : '';
+    switch (ev.type) {
+      case 'host_new': h.status = 'active'; break;
+      case 'host_silent': if (h.status !== 'changed') h.status = 'silent'; break;
+      case 'host_active': h.status = 'active'; h.gt = ''; break;
+      case 'service_new': h.services[key] = {silent: false}; break;
+      case 'service_silent': if (key) h.services[key] = {silent: true}; break;
+      case 'gt_quiet': h.gt = 'zweryfikowany_cichy'; if (h.status === 'changed') h.status = 'silent'; break;
+      case 'gt_changed': h.status = 'changed'; h.gt = ev.detail || 'zmieniony'; break;
+      case 'gt_unreachable': h.status = 'offline'; h.gt = 'nieosiągalny'; break;
+    }
+  }
+  // Hosts recorded before the timeline existed still deserve a place: show
+  // them with their registry state once their first_seen is reached.
+  for (const h of hosts) {
+    if (st[h.ip] || new Date(h.first_seen).getTime() > T) continue;
+    const e = ensure(h.ip);
+    e.sensor = h.sensor_id;
+    e.status = h.check_verdict === 'nieosiągalny' ? 'offline'
+      : h.check_verdict === 'zmieniony' ? 'changed'
+      : h.silent_since ? 'silent' : 'active';
+    e.gt = h.check_verdict || '';
+    for (const [key, svc] of Object.entries(h.services || {})) e.services[key] = {silent: false};
+  }
+  return st;
+}
+
+function drawMap() {
+  const data = mapState.data;
+  if (!data) return;
+  const events = (data.events || []).slice().sort((a, b) => new Date(a.time) - new Date(b.time));
+  const hosts = data.hosts || [];
+  const T = mapState.t;
+  const st = mapReplay(events, hosts, T);
+
+  const timeEl = $('#mapTime');
+  if (timeEl) timeEl.textContent = new Date(T).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  const range = $('#mapRange');
+  if (range && parseInt(range.value, 10) !== T) range.value = T;
+
+  // Group by /24 (v4) so hundreds of hosts stay scannable.
+  const subnets = {};
+  Object.entries(st).forEach(([ip, h]) => {
+    const parts = ip.split('.');
+    const net = parts.length === 4 ? parts.slice(0, 3).join('.') + '.0/24' : ip;
+    (subnets[net] = subnets[net] || []).push([ip, h]);
+  });
+  const canvas = $('#mapCanvas');
+  const nets = Object.keys(subnets).sort();
+  canvas.innerHTML = nets.length ? nets.map(net => `
+    <div class="map-subnet">
+      <h5>${esc(net)} · ${subnets[net].length} hostów</h5>
+      <div class="map-hosts">${subnets[net].sort((a, b) => a[0].localeCompare(b[0], undefined, {numeric: true})).map(([ip, h]) => {
+        const svcs = Object.entries(h.services).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+        return `<div class="map-host st-${h.status} ${mapState.selected === ip ? 'sel' : ''}" onclick="mapSelect('${ip}')">
+          <div class="ip">${esc(ip)}</div>
+          <div class="meta">${esc(h.sensor || '')}${h.gt ? ' · ' + esc(h.gt).slice(0, 60) : ''}</div>
+          ${svcs.length ? `<div class="map-svcs">${svcs.map(([k, s]) => `<span class="map-svc ${s.silent ? 'silent' : ''}">${esc(k)}</span>`).join('')}</div>` : ''}
+        </div>`;
+      }).join('')}</div>
+    </div>`).join('')
+    : '<div class="empty"><h3>Brak hostów w tym punkcie czasu</h3><p>Przesuń oś czasu dalej — sieć pojawi się wraz z pierwszymi zdarzeniami.</p></div>';
+
+  // Side panel: selected host details or the event journal around T.
+  const side = $('#mapSide');
+  if (mapState.selected && st[mapState.selected]) {
+    const ip = mapState.selected;
+    const h = st[ip];
+    const rec = hosts.find(x => x.ip === ip) || {};
+    const hostEvs = events.filter(e => e.ip === ip && new Date(e.time).getTime() <= T).slice(-30).reverse();
+    side.innerHTML = `
+      <h4 style="font-size:11px;letter-spacing:1px;color:var(--muted);margin-bottom:10px">HOST ${esc(ip)} <button class="link-btn" style="float:right" onclick="mapSelect(null)">zamknij</button></h4>
+      <div class="kv">
+        <dt>Stan (o ${new Date(T).toLocaleTimeString('pl-PL')})</dt><dd>${esc(h.status)}</dd>
+        <dt>Sensor</dt><dd>${esc(h.sensor || '—')}</dd>
+        <dt>Pierwszy kontakt</dt><dd>${fmtDateTime(rec.first_seen)}</dd>
+        <dt>Ostatni kontakt</dt><dd>${fmtDateTime(rec.last_seen)}</dd>
+        ${h.gt ? `<dt>Werdykt skanu</dt><dd>${esc(h.gt)}</dd>` : ''}
+      </div>
+      <h4 style="font-size:11px;letter-spacing:1px;color:var(--muted);margin:12px 0 6px">HISTORIA HOSTA</h4>
+      <div class="map-ev-list">${hostEvs.length ? hostEvs.map(e => mapEvLine(e)).join('') : '<p class="fineprint">Brak zdarzeń do tego momentu.</p>'}</div>`;
+  } else {
+    const visible = events.filter(e => new Date(e.time).getTime() <= T).slice(-100).reverse();
+    side.innerHTML = `
+      <h4 style="font-size:11px;letter-spacing:1px;color:var(--muted);margin-bottom:10px">OŚ CZASU · ${visible.length} zdarzeń</h4>
+      <div class="map-ev-list">${visible.length ? visible.map(e => mapEvLine(e)).join('') : '<p class="fineprint">Brak zdarzeń przed tym momentem.</p>'}</div>`;
+  }
+}
+
+function mapEvLine(e) {
+  const meta = MAP_EV[e.type] || {label: e.type, dot: 'gray'};
+  const svc = e.port ? ':' + e.port + (e.proto ? '/' + e.proto : '') : '';
+  return `<div class="map-ev">
+    <span class="t">${new Date(e.time).toLocaleString('pl-PL', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>
+    <span class="dot ${meta.dot}"></span>
+    <span class="txt"><b>${esc(meta.label)}</b> ${esc(e.ip)}${esc(svc)}${e.detail ? ' — ' + esc(e.detail).slice(0, 120) : ''}</span>
+  </div>`;
+}
+
+function mapSelect(ip) { mapState.selected = ip; drawMap(); }
+
+// --- exposure (inside/outside correlation) ---------------------------------
+const EXP_KIND = {
+  unmatched_external: {label: 'BEZ ODPOWIEDNIKA WEWNĄTRZ', cls: 'potwierdzony'},
+  exposed_internal:   {label: 'WEWNĘTRZNA WYSTAWIONA',     cls: 'potwierdzony'},
+  new_external:       {label: 'NOWA NA PUBLICZNYM IP',     cls: 'do_weryfikacji'},
+  favicon_spread:     {label: 'FAVICON NA INNYCH IP',      cls: 'do_weryfikacji'},
+  gone_external:      {label: 'ZNIKNĘŁA Z INTERNETU',      cls: 'zamkniety'},
+};
+
+async function viewExposure() {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading-line"><div class="spinner"></div> Ładuję korelację z widokiem zewnętrznym…</div>';
+  let d;
+  try { d = await api('/api/exposure'); }
+  catch (e) { app.innerHTML = `<div class="empty"><h3>Nie udało się pobrać danych ekspozycji</h3><p>${esc(e.message)}</p></div>`; return; }
+
+  if (!d.configured) {
+    app.innerHTML = `<div class="empty"><div class="waves">⇄</div>
+      <h3>Korelacja z internetem nie jest skonfigurowana</h3>
+      <p>Sensor widzi sieć od środka; Shodan/Censys widzą, co z niej wystawione jest na świat. Dodaj klucz API w Ustawieniach, a diff „wnętrze vs internet" zacznie wykrywać shadow IT i przypadkowe ekspozycje.</p>
+      ${session.user?.admin ? '<button class="btn primary" onclick="go(\'#/ustawienia\')">Przejdź do ustawień</button>' : '<p class="fineprint">Skonfigurować może administrator.</p>'}</div>`;
+    return;
+  }
+
+  const view = d.view || null;
+  const findings = d.findings || [];
+  const byKind = k => findings.filter(f => f.kind === k);
+  const isAdmin = !!session.user?.admin;
+
+  app.innerHTML = `
+    <div class="cards">
+      <div class="card panel"><div class="label">PUBLICZNE IP</div><div class="value" style="font-size:20px;font-family:var(--mono)">${esc(view?.ip || '—')}</div><div class="sub">${esc(d.provider)}${view?.org ? ' · ' + esc(view.org) : ''}</div></div>
+      <div class="card panel"><div class="label">USŁUGI Z INTERNETU</div><div class="value">${view ? view.services.length : '—'}</div><div class="sub">${view?.last_update ? 'akt. ' + esc(view.last_update.slice(0, 10)) : ''}</div></div>
+      <div class="card panel"><div class="label">BEZ ODPOWIEDNIKA</div><div class="value" style="color:var(--danger)">${byKind('unmatched_external').length}</div><div class="sub">shadow IT / przypadkowa ekspozycja</div></div>
+      <div class="card panel"><div class="label">WEWN. WYSTAWIONE</div><div class="value" style="color:var(--warn)">${byKind('exposed_internal').length}</div><div class="sub">nowe wewnątrz + widoczne z świata</div></div>
+    </div>
+    <div class="feed-toolbar">
+      <span class="muted">${d.enabled ? `Włączone · co ${esc(d.interval || '—')}` : 'Wyłączone — tylko kontrole ręczne'}${d.running ? ' · <b>kontrola w toku…</b>' : ''}</span>
+      <span style="flex:1"></span>
+      ${isAdmin ? `<button class="btn" onclick="runExposure()">Uruchom kontrolę teraz</button>` : ''}
+      <button class="btn" onclick="viewExposure()">Odśwież</button>
+    </div>
+    ${d.last_summary ? `<p class="fineprint" style="margin-bottom:12px">Ostatnia kontrola: ${esc(d.last_summary)}</p>` : ''}
+    ${view?.vulns?.length ? `<div class="banner"><span>⚠</span><div class="grow">${esc(d.provider)} raportuje na tym adresie ${view.vulns.length} znanych CVE: ${esc(view.vulns.slice(0, 8).join(', '))}${view.vulns.length > 8 ? '…' : ''}</div></div>` : ''}
+    <div class="detail" style="grid-template-columns:1fr 1fr">
+      <div class="panel">
+        <h4>WIDOK ZEWNĘTRZNY (${esc(d.provider)})</h4>
+        ${view && view.services.length ? `<table><thead><tr><th>Usługa</th><th>Produkt</th><th>Odpowiednik wewnętrzny</th></tr></thead>
+        <tbody>${view.services.map(s => {
+          const f = findings.find(x => x.service.port === s.port && (x.kind === 'unmatched_external' || x.kind === 'exposed_internal'));
+          return `<tr style="cursor:default"><td class="mono">${s.port}/${esc(s.proto || 'tcp')}${s.favicon_mmh3 ? ` <span class="fineprint">favicon ${s.favicon_mmh3}</span>` : ''}</td>
+            <td>${esc((s.product || '') + ' ' + (s.version || '')) || '<span class="muted">—</span>'}</td>
+            <td>${f && f.kind === 'unmatched_external' ? '<span class="badge potwierdzony">BRAK — shadow IT?</span>'
+              : f && f.match_ip ? `<span class="badge nowe">${esc(f.match_ip)}</span>`
+              : '<span class="muted">—</span>'}</td></tr>`;
+        }).join('')}</tbody></table>` : '<p class="muted" style="padding:14px">Brak danych — uruchom kontrolę.</p>'}
+      </div>
+      <div class="panel">
+        <h4>WYNIKI DIFFU „WNĘTRZE vs INTERNET"</h4>
+        ${findings.length ? `<div class="feed" style="max-height:50vh">${findings.map(f => {
+          const k = EXP_KIND[f.kind] || {label: f.kind, cls: 'zamkniety'};
+          return `<div class="feed-line"><span class="feed-kind ${f.kind === 'gone_external' ? 'note' : f.kind === 'new_external' || f.kind === 'favicon_spread' ? 'status' : 'alert'}" style="width:auto">${esc(k.label)}</span>
+            <span class="feed-text"><b class="mono">${f.service.port}/${esc(f.service.proto || 'tcp')}</b> ${esc((f.service.product || '') + ' ' + (f.service.version || ''))}${f.match_ip ? ' ↔ ' + esc(f.match_ip) : ''}<br><span class="muted">${esc(f.detail)}</span> <span class="feed-time">${fmtDateTime(f.first_seen)}</span></span></div>`;
+        }).join('')}</div>` : '<p class="muted" style="padding:14px">Brak rozjazdu widoków — wnętrze i internet mówią to samo.</p>'}
+      </div>
+    </div>`;
+}
+
+async function runExposure() {
+  try {
+    await post('/api/exposure/run', {});
+    alert('Kontrola ekspozycji uruchomiona — wynik pojawi się za chwilę.');
+    setTimeout(viewExposure, 3000);
+  } catch (e) { alert('Nie udało się uruchomić: ' + e.message); }
 }
 
 // --- router ----------------------------------------------------------------
@@ -1044,21 +1391,26 @@ async function render() {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
     h.startsWith('#/sensory') ? t.dataset.nav === 'sensory'
     : h.startsWith('#/cele') ? t.dataset.nav === 'cele'
+    : h.startsWith('#/mapa') ? t.dataset.nav === 'mapa'
+    : h.startsWith('#/ekspozycja') ? t.dataset.nav === 'ekspozycja'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
     : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
+  if (h.startsWith('#/mapa')) return viewMap();
+  if (h.startsWith('#/ekspozycja')) return viewExposure();
   if (h.startsWith('#/sensory')) return viewSensors();
   if (h.startsWith('#/cele')) return viewInventory();
   if (h.startsWith('#/logi')) return viewLogs();
   if (h.startsWith('#/reguly')) return viewRules();
   if (h.startsWith('#/ustawienia')) return viewSettings();
+  if (h.startsWith('#/role')) return viewRoles();
   if (h.startsWith('#/alerta/')) return viewAlert(decodeURIComponent(h.slice(9)));
   return viewAlerts();
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/cele')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa') && !location.hash.startsWith('#/ekspozycja') && !location.hash.startsWith('#/role') && !location.hash.startsWith('#/cele')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {

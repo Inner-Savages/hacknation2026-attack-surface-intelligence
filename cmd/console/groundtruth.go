@@ -30,6 +30,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
+	"github.com/Inner-Savages/silence-on-the-wire/internal/vuln"
 )
 
 // defaultProbePorts are checked on every control scan in addition to the
@@ -72,23 +75,58 @@ func (h *HostRecord) serviceKey(port int, proto string) string {
 	return strconv.Itoa(port) + "/" + proto
 }
 
+// topologyEvent is one entry of the attack-surface timeline: a host
+// appearing, going silent, coming back, a service showing up or a control
+// scan verdict. The map view replays these to answer "how does my network
+// drift over time".
+type topologyEvent struct {
+	Time     time.Time `json:"time"`
+	Type     string    `json:"type"` // host_new, host_silent, host_active, service_new, service_silent, gt_quiet, gt_changed, gt_unreachable
+	IP       string    `json:"ip"`
+	Port     int       `json:"port,omitempty"`
+	Proto    string    `json:"proto,omitempty"`
+	SensorID string    `json:"sensor_id,omitempty"`
+	Detail   string    `json:"detail,omitempty"`
+}
+
+// Bounds of the persisted timeline: long enough to see drift, small enough
+// for hosts.json to stay a file, not a database.
+const (
+	topologyMaxEvents = 5000
+	topologyMaxAge    = 30 * 24 * time.Hour
+)
+
 // hostRegistry is the durable, JSON-file backed record of passive
-// observations per host.
+// observations per host plus the topology timeline.
 type hostRegistry struct {
-	mu    sync.Mutex
-	path  string
-	hosts map[string]*HostRecord
-	dirty bool
+	mu     sync.Mutex
+	path   string
+	hosts  map[string]*HostRecord
+	events []topologyEvent
+	dirty  bool
+}
+
+// registryFile is the on-disk shape of hosts.json. The previous format was
+// a bare host map; openHostRegistry accepts both.
+type registryFile struct {
+	Hosts  map[string]*HostRecord `json:"hosts"`
+	Events []topologyEvent        `json:"events,omitempty"`
 }
 
 func openHostRegistry(dir string) (*hostRegistry, error) {
 	r := &hostRegistry{path: filepath.Join(dir, "hosts.json"), hosts: map[string]*HostRecord{}}
-	b, err := os.ReadFile(r.path)
+	b, err := rest.ReadFile(r.path)
 	if os.IsNotExist(err) {
 		return r, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	var wrapped registryFile
+	if json.Unmarshal(b, &wrapped) == nil && wrapped.Hosts != nil {
+		r.hosts = wrapped.Hosts
+		r.events = wrapped.Events
+		return r, nil
 	}
 	var hosts map[string]*HostRecord
 	if json.Unmarshal(b, &hosts) == nil {
@@ -97,8 +135,58 @@ func openHostRegistry(dir string) (*hostRegistry, error) {
 	return r, nil
 }
 
+// addEvent appends one timeline entry and enforces the retention bounds
+// (oldest first out). Caller must hold r.mu.
+func (r *hostRegistry) addEvent(ev topologyEvent) {
+	r.events = append(r.events, ev)
+	cutoff := time.Now().Add(-topologyMaxAge)
+	keep := 0
+	for keep < len(r.events) && r.events[keep].Time.Before(cutoff) {
+		keep++
+	}
+	if overflow := len(r.events) - keep - topologyMaxEvents; overflow > 0 {
+		keep += overflow
+	}
+	if keep > 0 {
+		r.events = append([]topologyEvent(nil), r.events[keep:]...)
+	}
+}
+
+// timeline returns the journal, newest last, optionally filtered to
+// [from, to].
+func (r *hostRegistry) timeline(from, to time.Time) []topologyEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]topologyEvent, 0, len(r.events))
+	for _, ev := range r.events {
+		if !from.IsZero() && ev.Time.Before(from) {
+			continue
+		}
+		if !to.IsZero() && ev.Time.After(to) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
+// hostsSnapshot returns a copy of the current per-host records for the API.
+func (r *hostRegistry) hostsSnapshot() []*HostRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*HostRecord, 0, len(r.hosts))
+	for _, h := range r.hosts {
+		cp := *h
+		out = append(out, &cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IP < out[j].IP })
+	return out
+}
+
 // Observe folds one passive sensor log line into the registry. Silent
-// events start the silent clock; any sign of life resets it.
+// events start the silent clock; any sign of life resets it. Every state
+// transition is mirrored to the topology timeline, so the map view can
+// replay how the network drifted.
 func (r *hostRegistry) Observe(l sensorLog, sensorID string, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -106,6 +194,7 @@ func (r *hostRegistry) Observe(l sensorLog, sensorID string, now time.Time) {
 	if !ok {
 		h = &HostRecord{IP: l.IP, SensorID: sensorID, FirstSeen: now}
 		r.hosts[l.IP] = h
+		r.addEvent(topologyEvent{Time: now, Type: "host_new", IP: l.IP, SensorID: sensorID})
 	}
 	if sensorID != "" {
 		h.SensorID = sensorID
@@ -116,15 +205,20 @@ func (r *hostRegistry) Observe(l sensorLog, sensorID string, now time.Time) {
 	case "host_silent":
 		if h.SilentSince == nil {
 			h.SilentSince = &now
+			r.addEvent(topologyEvent{Time: now, Type: "host_silent", IP: l.IP, SensorID: sensorID})
 		}
 	case "service_silent", "service_quiet":
 		if l.Port > 0 {
 			if svc := h.Services[h.serviceKey(l.Port, l.Proto)]; svc != nil {
 				svc.LastSeen = now
 			}
+			r.addEvent(topologyEvent{Time: now, Type: "service_silent", IP: l.IP, Port: l.Port, Proto: l.Proto, SensorID: sensorID})
 		}
 	default:
 		// Any non-silent event is proof the host speaks.
+		if h.SilentSince != nil {
+			r.addEvent(topologyEvent{Time: now, Type: "host_active", IP: l.IP, SensorID: sensorID})
+		}
 		h.SilentSince = nil
 		if l.Port > 0 && (l.Type == "service_new" || l.Type == "service_up" || strings.HasPrefix(l.Type, "service")) {
 			key := h.serviceKey(l.Port, l.Proto)
@@ -133,6 +227,7 @@ func (r *hostRegistry) Observe(l sensorLog, sensorID string, now time.Time) {
 			}
 			if _, ok := h.Services[key]; !ok {
 				h.Services[key] = &HostService{Port: l.Port, Proto: l.Proto, LastSeen: now}
+				r.addEvent(topologyEvent{Time: now, Type: "service_new", IP: l.IP, Port: l.Port, Proto: l.Proto, SensorID: sensorID})
 			} else {
 				h.Services[key].LastSeen = now
 			}
@@ -169,15 +264,11 @@ func (r *hostRegistry) save() error {
 	if !r.dirty {
 		return nil
 	}
-	b, err := json.MarshalIndent(r.hosts, "", "  ")
+	b, err := json.MarshalIndent(registryFile{Hosts: r.hosts, Events: r.events}, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := r.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, r.path); err != nil {
+	if err := rest.WriteFile(r.path, b, 0o600); err != nil {
 		return err
 	}
 	r.dirty = false
@@ -295,11 +386,15 @@ type groundTruth struct {
 	settings *settings
 	operator string
 	dial     dialFunc
+	cveDir   string
 
 	mu      sync.Mutex
 	running bool
 	lastRun time.Time
 	lastSum string
+
+	cveOnce sync.Once
+	cve     *vuln.Client
 }
 
 func newGroundTruth(dir string, st *Store, feed *LiveFeed, cfg *settings, operator string) (*groundTruth, error) {
@@ -308,7 +403,21 @@ func newGroundTruth(dir string, st *Store, feed *LiveFeed, cfg *settings, operat
 		return nil, err
 	}
 	d := (&net.Dialer{Timeout: 2 * time.Second}).DialContext
-	return &groundTruth{registry: reg, store: st, feed: feed, settings: cfg, operator: operator, dial: d}, nil
+	return &groundTruth{registry: reg, store: st, feed: feed, settings: cfg, operator: operator, dial: d, cveDir: dir}, nil
+}
+
+// cveClient lazily builds the CVE enrichment client. A construction error
+// (e.g. an uncreatable cache dir) degrades to no enrichment, never to a
+// failed scan.
+func (g *groundTruth) cveClient() *vuln.Client {
+	g.cveOnce.Do(func() {
+		c, err := vuln.NewClient(filepath.Join(g.cveDir, "cve-cache"),
+			firstNonEmpty(os.Getenv("NVD_API_KEY"), os.Getenv("ASI_NVD_API_KEY")))
+		if err == nil {
+			g.cve = c
+		}
+	})
+	return g.cve
 }
 
 // gtConfig resolves the effective scan policy.
@@ -392,6 +501,16 @@ func (g *groundTruth) run(trigger string) {
 			// every drift escalates once and is then the new normal.
 			h.Baseline = probe.Open
 		}
+		// Control scan verdicts are topology events too: on the timeline
+		// they are the ground-truth anchors between passive observations.
+		gtType := map[string]string{
+			verdictQuiet: "gt_quiet", verdictChanged: "gt_changed", verdictUnreachable: "gt_unreachable",
+		}[verdict]
+		detail := verdict
+		if verdict == verdictChanged {
+			detail = strings.Join(probe.Changes, "; ")
+		}
+		g.registry.addEvent(topologyEvent{Time: checked, Type: gtType, IP: h.IP, SensorID: h.SensorID, Detail: detail})
 		g.registry.dirty = true
 		g.registry.mu.Unlock()
 
@@ -428,11 +547,25 @@ func (g *groundTruth) escalate(h *HostRecord, probe hostProbe) {
 		"Pasywna telemetria nie rozróżnia „host wyłączony” od „działa po cichu” (scenariusz silent_stealth) — dlatego skan był potrzebny jako ground truth.",
 		silentFor, strings.Join(probe.Changes, "; "))
 	eventID := "gt-" + strings.ReplaceAll(h.IP, ".", "-") + "-" + strconv.FormatInt(time.Now().Unix(), 36)
+	event := map[string]interface{}{
+		"time": time.Now().UTC().Format(time.RFC3339), "type": "ground_truth_change",
+		"ip": h.IP, "changes": probe.Changes, "silent_for": silentFor.String(),
+	}
+	// CVE enrichment: banners captured by the control scan already name
+	// products and versions; look them up in NVD and rank by EPSS so the
+	// case says "this instance has CVE-XXXX with EPSS 0.94" instead of
+	// just "something changed". Fail-soft: no network, no enrichment.
+	if vulns := g.enrichCVE(probe); len(vulns) > 0 {
+		event["vulns"] = vulns
+		top := vulns[0]
+		extra := fmt.Sprintf(" Najgroźniejsza znana podatność: %s (EPSS %.2f", top.CVE, top.EPSS)
+		if top.KEV {
+			extra += ", na liście CISA KEV — aktywnie eksploitowana"
+		}
+		reason += extra + ")."
+	}
 	envelope, _ := json.Marshal(map[string]interface{}{
-		"event": map[string]interface{}{
-			"time": time.Now().UTC().Format(time.RFC3339), "type": "ground_truth_change",
-			"ip": h.IP, "changes": probe.Changes, "silent_for": silentFor.String(),
-		},
+		"event":     event,
 		"event_id":  eventID,
 		"sensor_id": h.SensorID, "forward": true, "reason": reason,
 	})
@@ -447,6 +580,49 @@ func (g *groundTruth) escalate(h *HostRecord, probe hostProbe) {
 	if _, err := g.store.AddEscalation(c); err != nil {
 		g.feed.Append("alert", h.SensorID, "Ground truth: nie udało się zapisać sprawy dla "+h.IP+": "+err.Error(), nil)
 	}
+}
+
+// enrichCVE looks up the banners captured by the control scan in NVD and
+// ranks the findings by EPSS. Disabled in settings, missing client or
+// lookup errors all degrade to nil — a case without CVEs is still a case.
+func (g *groundTruth) enrichCVE(probe hostProbe) []result.Vuln {
+	snap := g.settings.snapshot()
+	if !cveLookupEffective(snap.CVELookup) {
+		return nil
+	}
+	client := g.cveClient()
+	if client == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	seen := map[string]bool{}
+	var out []result.Vuln
+	for _, banner := range probe.Open {
+		if banner == "" {
+			continue
+		}
+		vs, err := client.EnrichBanner(ctx, banner)
+		if err != nil {
+			continue
+		}
+		for _, v := range vs {
+			if !seen[v.CVE] {
+				seen[v.CVE] = true
+				out = append(out, v)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].EPSS != out[j].EPSS {
+			return out[i].EPSS > out[j].EPSS
+		}
+		return out[i].CVSS > out[j].CVSS
+	})
+	if len(out) > 3 {
+		out = out[:3]
+	}
+	return out
 }
 
 // status is the operator-facing snapshot for the API.

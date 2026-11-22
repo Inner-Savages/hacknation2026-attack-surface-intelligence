@@ -82,9 +82,30 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   `-sV`), Recog and WhatWeb. Our format is small (one kind of evidence per matcher) and
   combines nmap results, the HTTP response, the favicon and safe GET-only paths, with
   weights that add up to a confidence score. It also has rules those bases lack, such as
-  "staging" or "admin panel". The cost is that we don't get thousands of signatures for
-  free. The natural next step is an importer that translates Wappalyzer technologies and
-  nuclei favicon hashes into this format, without adopting their engines.
+  "staging" or "admin panel". The cost — not getting thousands of signatures for free —
+  is covered by the importer (`cmd/sigimport`), which translates Wappalyzer technologies
+  and nuclei detection templates (including the favicon mmh3 hashes and the bulk
+  WordPress plugin/theme lists) into this format, without adopting their engines:
+
+  ```bash
+  git clone --depth 1 https://github.com/enthec/webappanalyzer
+  git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates
+  go run ./cmd/sigimport \
+      -wappalyzer webappanalyzer/src/technologies \
+      -nuclei nuclei-templates/http/technologies \
+      -o signatures-imported.yaml
+  ./bin/scanner -t 10.0.0.0/24 -signatures signatures-imported.yaml ...
+  ```
+
+  The importer converts only evidence our passive model can honour (headers, cookies,
+  HTML/meta/script patterns, fixed paths, favicon hashes) and reports the rest as
+  skipped: Wappalyzer `js`/`dom`/`dns`/`xhr` need a browser or resolver, and nuclei
+  requests whose `and`-condition depends on an untranslatable matcher are dropped
+  whole, because keeping half of a conjunction would create false positives. On the
+  current sources this yields about 60,000 signatures (roughly 6,000 Wappalyzer and
+  54,000 nuclei, most of them individual WordPress plugins and themes); the engine
+  loads them in under a second. The generated file is data, not code — re-run the
+  importer against newer sources instead of editing it by hand.
 - **Trigger** (`cmd/trigger`): receives sensor events (`sensor -webhook`) and runs
   targeted scans through the same pipeline: new or changed services and hosts are
   scanned, silent or closed ones verified. Each scan becomes a finding with a verdict
@@ -154,8 +175,25 @@ make build
 
 Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `-Pn`,
 `-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-chunk` and `-parallel` (chunking),
-`-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
-`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`).
+`-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`;
+imported Wappalyzer/nuclei bases work too, see `cmd/sigimport`),
+`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`),
+`-cve` (map detected product versions to CVEs, see below), `-cve-cache` (cache dir,
+default `var/cve-cache`).
+
+### CVE enrichment (NVD + EPSS)
+
+With `-cve` the scanner turns every detected product *and version* into a CPE
+(`internal/vuln`), queries NVD for the matching CVEs and ranks them by **EPSS**
+exploitation probability from FIRST, flagging anything on the **CISA KEV** list
+of actively exploited vulnerabilities. Each technology in the result then carries
+up to five entries like `CVE-2021-42013 — CVSS 9.8, EPSS 0.97, KEV`, so a diff
+stops being a list of changes and becomes a ranked risk picture. Lookups are
+fail-soft (no network, no enrichment) and cached on disk (NVD 7 days, EPSS/KEV
+24 h); `NVD_API_KEY` raises the anonymous NVD quota ~10x. Products and versions
+come from the fingerprint detections and from service banners (OpenSSH, Apache,
+nginx, IIS, MySQL/MariaDB, Redis, PostgreSQL, …); a detection without a version
+is deliberately skipped — a versionless lookup is noise, not intelligence.
 
 ### Export to CSV and DefectDojo
 

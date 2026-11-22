@@ -29,6 +29,9 @@ func main() {
 	aiOperator := flag.Bool("ai-operator", envOr("ASI_AI_OPERATOR", "") == "true", "let the configured LLM act as an autonomous, fully audited operator")
 	flag.Parse()
 
+	if err := initAtRest(*dataDir); err != nil {
+		log.Fatalf("data encryption: %v", err)
+	}
 	store, err := openStore(*dataDir)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -55,7 +58,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("open rules: %v", err)
 	}
+	roleSt, err := openRoles(*dataDir)
+	if err != nil {
+		log.Fatalf("open roles: %v", err)
+	}
 	srv := &server{
+		roles: roleSt, audit: openAudit(*dataDir),
 		store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demoData: *demo, feed: feed,
 		operator: *operator, aiAuto: *aiAuto, aiOpDefault: *aiOperator, demoDefault: *demo,
 		auth: userAuth, settings: cfg, rules: rules,
@@ -70,9 +78,17 @@ func main() {
 	if srv.inv, err = openInventory(*dataDir); err != nil {
 		log.Fatalf("open inventory: %v", err)
 	}
+	// Inside/outside correlation: what Shodan/Censys see of the public IP,
+	// diffed against the passive registry (shadow IT, accidental exposure).
+	expo, err := newExposureCheck(*dataDir, store, feed, cfg, gt)
+	if err != nil {
+		log.Fatalf("open exposure state: %v", err)
+	}
+	srv.exposure = expo
 	go func() {
 		for range time.Tick(time.Minute) {
 			gt.tick()
+			expo.tick()
 		}
 	}()
 	go func() {

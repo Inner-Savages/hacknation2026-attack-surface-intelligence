@@ -74,7 +74,7 @@ func openInventory(dataDir string) (*inventory, error) {
 	if err := os.MkdirAll(inv.dir, 0o755); err != nil {
 		return nil, err
 	}
-	if b, err := os.ReadFile(filepath.Join(inv.dir, "state.json")); err == nil {
+	if b, err := rest.ReadFile(filepath.Join(inv.dir, "state.json")); err == nil {
 		if err := json.Unmarshal(b, &inv.st); err != nil {
 			return nil, fmt.Errorf("inventory state: %w", err)
 		}
@@ -82,7 +82,7 @@ func openInventory(dataDir string) (*inventory, error) {
 			inv.st.Overrides = map[string]*Override{}
 		}
 	}
-	if b, err := os.ReadFile(filepath.Join(inv.dir, "scan.json")); err == nil {
+	if b, err := rest.ReadFile(filepath.Join(inv.dir, "scan.json")); err == nil {
 		var sc result.Scan
 		if err := json.Unmarshal(b, &sc); err != nil {
 			return nil, fmt.Errorf("inventory scan: %w", err)
@@ -97,11 +97,7 @@ func writeAtomic(path string, v interface{}) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return rest.WriteFile(path, b, 0o600) // AES-GCM at rest, atomic
 }
 
 func (inv *inventory) saveLocked() error {

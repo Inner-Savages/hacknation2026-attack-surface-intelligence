@@ -22,7 +22,7 @@ func invServer(t *testing.T) (*server, string, string) {
 	return s, ts.URL, tok
 }
 
-func call(t *testing.T, method, url, tok, body string) (int, []byte) {
+func hcall(t *testing.T, method, url, tok, body string) (int, []byte) {
 	t.Helper()
 	r, _ := http.NewRequest(method, url, strings.NewReader(body))
 	if tok != "" {
@@ -55,7 +55,7 @@ func TestNormalizeTarget(t *testing.T) {
 func TestImportTargetsAllFormatsDedup(t *testing.T) {
 	s, base, tok := invServer(t)
 	imp := func(q, body string) (int, map[string]interface{}) {
-		code, b := call(t, "POST", base+"/api/import?kind=targets"+q, tok, body)
+		code, b := hcall(t, "POST", base+"/api/import?kind=targets"+q, tok, body)
 		var m map[string]interface{}
 		json.Unmarshal(b, &m)
 		return code, m
@@ -89,14 +89,14 @@ func TestImportTargetsAllFormatsDedup(t *testing.T) {
 
 func TestImportSizeLimitAndAuth(t *testing.T) {
 	_, base, tok := invServer(t)
-	if code, _ := call(t, "POST", base+"/api/import?kind=targets", "", "10.0.0.1"); code != 401 {
+	if code, _ := hcall(t, "POST", base+"/api/import?kind=targets", "", "10.0.0.1"); code != 401 {
 		t.Fatalf("unauthenticated import: %d", code)
 	}
 	big := strings.Repeat("10.0.0.1\n", maxImportBytes/8)
-	if code, _ := call(t, "POST", base+"/api/import?kind=targets", tok, big); code != 413 {
+	if code, _ := hcall(t, "POST", base+"/api/import?kind=targets", tok, big); code != 413 {
 		t.Fatalf("oversize: %d", code)
 	}
-	if code, _ := call(t, "POST", base+"/api/import?kind=nope", tok, "x"); code != 400 {
+	if code, _ := hcall(t, "POST", base+"/api/import?kind=nope", tok, "x"); code != 400 {
 		t.Fatalf("bad kind: %d", code)
 	}
 }
@@ -113,7 +113,7 @@ const scanB = `{"started_at":"2026-05-02T10:00:00Z","targets":["10.0.0.1","10.0.
 
 func entryByKey(t *testing.T, base, tok, key string) Entry {
 	t.Helper()
-	_, b := call(t, "GET", base+"/api/inventory", tok, "")
+	_, b := hcall(t, "GET", base+"/api/inventory", tok, "")
 	var r struct{ Entries []Entry }
 	if err := json.Unmarshal(b, &r); err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func entryByKey(t *testing.T, base, tok, key string) Entry {
 
 func TestScanImportDiffAndOverrideSurvivesRescan(t *testing.T) {
 	s, base, tok := invServer(t)
-	if code, b := call(t, "POST", base+"/api/import?kind=scan", tok, scanA); code != 200 {
+	if code, b := hcall(t, "POST", base+"/api/import?kind=scan", tok, scanA); code != 200 {
 		t.Fatalf("scan A: %d %s", code, b)
 	}
 	key := "svc:10.0.0.1:tcp:80"
@@ -137,7 +137,7 @@ func TestScanImportDiffAndOverrideSurvivesRescan(t *testing.T) {
 	if e.Original.Title != "Welcome" || e.Effective.Technology != "nginx 1.18" || e.Override != nil {
 		t.Fatalf("original: %+v", e)
 	}
-	code, b := call(t, "PUT", base+"/api/overrides/"+key, tok, `{"title":"Corporate portal","tags":["Crown-Jewel"," prod"],"note":"owner: web team","status":"potwierdzony"}`)
+	code, b := hcall(t, "PUT", base+"/api/overrides/"+key, tok, `{"title":"Corporate portal","tags":["Crown-Jewel"," prod"],"note":"owner: web team","status":"potwierdzony"}`)
 	if code != 200 {
 		t.Fatalf("put override: %d %s", code, b)
 	}
@@ -147,7 +147,7 @@ func TestScanImportDiffAndOverrideSurvivesRescan(t *testing.T) {
 		t.Fatalf("layered: %+v", e)
 	}
 	// Second scan: diff computed, original data replaced, override untouched.
-	code, b = call(t, "POST", base+"/api/import?kind=scan", tok, scanB)
+	code, b = hcall(t, "POST", base+"/api/import?kind=scan", tok, scanB)
 	if code != 200 || !strings.Contains(string(b), `"new_services":1`) || !strings.Contains(string(b), `"changed_services":1`) {
 		t.Fatalf("scan B: %d %s", code, b)
 	}
@@ -164,13 +164,13 @@ func TestScanImportDiffAndOverrideSurvivesRescan(t *testing.T) {
 		t.Fatal("not persisted")
 	}
 	// DELETE restores the original
-	if code, _ := call(t, "DELETE", base+"/api/overrides/"+key, tok, ""); code != 204 {
+	if code, _ := hcall(t, "DELETE", base+"/api/overrides/"+key, tok, ""); code != 204 {
 		t.Fatal("delete")
 	}
 	if e = entryByKey(t, base, tok, key); e.Effective.Title != "Welcome v2" || e.Override != nil {
 		t.Fatalf("not restored: %+v", e)
 	}
-	if code, _ := call(t, "DELETE", base+"/api/overrides/"+key, tok, ""); code != 404 {
+	if code, _ := hcall(t, "DELETE", base+"/api/overrides/"+key, tok, ""); code != 404 {
 		t.Fatal("second delete should 404")
 	}
 }
@@ -178,14 +178,14 @@ func TestScanImportDiffAndOverrideSurvivesRescan(t *testing.T) {
 func TestOverrideValidation(t *testing.T) {
 	_, base, tok := invServer(t)
 	for body, want := range map[string]int{`{}`: 400, `{"status":"bogus"}`: 400, `not json`: 400, `{"note":"ok"}`: 200} {
-		if code, _ := call(t, "PUT", base+"/api/overrides/host:10.0.0.9", tok, body); code != want {
+		if code, _ := hcall(t, "PUT", base+"/api/overrides/host:10.0.0.9", tok, body); code != want {
 			t.Errorf("%s -> %d, want %d", body, code, want)
 		}
 	}
-	if code, _ := call(t, "PUT", base+"/api/overrides/evil", tok, `{"note":"x"}`); code != 400 {
+	if code, _ := hcall(t, "PUT", base+"/api/overrides/evil", tok, `{"note":"x"}`); code != 400 {
 		t.Error("bad key accepted")
 	}
-	if code, _ := call(t, "PUT", base+"/api/overrides/host:1.1.1.1", "", `{"note":"x"}`); code != 401 {
+	if code, _ := hcall(t, "PUT", base+"/api/overrides/host:1.1.1.1", "", `{"note":"x"}`); code != 401 {
 		t.Error("unauthenticated PUT")
 	}
 }
@@ -220,25 +220,55 @@ func TestScanCSVImportRoundTripAndMultipart(t *testing.T) {
 
 func TestManualTargetShowsAsEntryAndOverridable(t *testing.T) {
 	_, base, tok := invServer(t)
-	code, _ := call(t, "POST", base+"/api/targets", tok, `{"value":"Staging.Example.com","tags":["Staging"]}`)
+	code, _ := hcall(t, "POST", base+"/api/targets", tok, `{"value":"Staging.Example.com","tags":["Staging"]}`)
 	if code != 201 {
 		t.Fatalf("add: %d", code)
 	}
-	if code, _ = call(t, "POST", base+"/api/targets", tok, `{"value":"staging.example.com"}`); code != 200 {
+	if code, _ = hcall(t, "POST", base+"/api/targets", tok, `{"value":"staging.example.com"}`); code != 200 {
 		t.Fatal("duplicate should be 200 (merged)")
 	}
-	if code, _ = call(t, "POST", base+"/api/targets", tok, `{"value":"10.0.0.0/8"}`); code != 400 {
+	if code, _ = hcall(t, "POST", base+"/api/targets", tok, `{"value":"10.0.0.0/8"}`); code != 400 {
 		t.Fatal("huge cidr accepted")
 	}
 	e := entryByKey(t, base, tok, "host:staging.example.com")
 	if e.Kind != "target" || e.Effective.Tags[0] != "staging" {
 		t.Fatalf("%+v", e)
 	}
-	_, txt := call(t, "GET", base+"/api/targets.txt", tok, "")
+	_, txt := hcall(t, "GET", base+"/api/targets.txt", tok, "")
 	if strings.TrimSpace(string(txt)) != "staging.example.com" {
 		t.Fatalf("txt export: %q", txt)
 	}
-	if code, _ = call(t, "DELETE", base+"/api/targets/staging.example.com", tok, ""); code != 204 {
+	if code, _ = hcall(t, "DELETE", base+"/api/targets/staging.example.com", tok, ""); code != 204 {
 		t.Fatal("delete target")
+	}
+}
+
+func TestInventoryRBAC(t *testing.T) {
+	s, _, _ := testServer(t)
+	inv, err := openInventory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.inv = inv
+	h := s.routes()
+	viewer := userWithRole(t, s, "viewer1", "viewer")
+	analyst := userWithRole(t, s, "analyst1", "analyst")
+	editor := userWithRole(t, s, "editor1", "editor")
+	type tc struct {
+		method, url, body string
+		want              [3]int // viewer, analyst, editor
+	}
+	for _, c := range []tc{
+		{"GET", "/api/inventory", "", [3]int{200, 200, 200}},
+		{"PUT", "/api/overrides/host:1.1.1.1", `{"note":"x"}`, [3]int{403, 200, 200}},
+		{"DELETE", "/api/overrides/host:1.1.1.1", "", [3]int{403, 204, 404}},
+		{"POST", "/api/targets", `{"value":"10.0.0.1"}`, [3]int{403, 403, 201}},
+		{"POST", "/api/import?kind=targets", "10.0.0.2", [3]int{403, 403, 200}},
+	} {
+		for i, tok := range []string{viewer, analyst, editor} {
+			if w := call(t, h, c.method, c.url, c.body, tok); w.Code != c.want[i] {
+				t.Errorf("%s %s role#%d: %d, want %d", c.method, c.url, i, w.Code, c.want[i])
+			}
+		}
 	}
 }

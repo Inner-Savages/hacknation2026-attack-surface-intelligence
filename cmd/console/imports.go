@@ -21,9 +21,9 @@ import (
 	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
 )
 
-// guard is the single permission hook for the target/import/override API.
-// Today it is a plain session check; when RBAC lands, swap the body for the
-// permission check (e.g. "targets.write") without touching the routes.
+// guard wraps a handler with the session check. Permissions are enforced by
+// the RBAC middleware from routePerms (rbac.go): targets:read for GETs,
+// targets:write for targets/import, overrides:write for override edits.
 func (s *server) guard(perm string, h http.HandlerFunc) http.Handler {
 	_ = perm
 	return s.needAuth(h)
