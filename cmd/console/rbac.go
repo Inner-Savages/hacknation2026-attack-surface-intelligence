@@ -27,6 +27,7 @@ const (
 	PermConfigRead  = "config:read"
 	PermConfigWrite = "config:write"
 	PermScanRun     = "groundtruth:run"
+	PermExposureRun = "exposure:run"
 	PermUsersManage = "users:manage"
 	PermRolesManage = "roles:manage"
 	PermAuditRead   = "audit:read"
@@ -45,6 +46,7 @@ var permCatalog = []struct{ Perm, Desc string }{
 	{PermConfigRead, "Odczyt ustawień konsoli"},
 	{PermConfigWrite, "Zmiana ustawień konsoli (klucze AI, tryby)"},
 	{PermScanRun, "Uruchamianie skanów ground truth"},
+	{PermExposureRun, "Uruchamianie kontroli ekspozycji"},
 	{PermUsersManage, "Zarządzanie kontami operatorów"},
 	{PermRolesManage, "Tworzenie i edycja ról"},
 	{PermAuditRead, "Odczyt dziennika audytu zmian"},
@@ -73,7 +75,7 @@ const defaultRole = "analyst" // new self-registered accounts keep today's worki
 func builtinRoles() []*Role {
 	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead}
 	analyst := append(append([]string{}, read...), PermCasesUpdate)
-	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun)
+	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun, PermExposureRun)
 	all := make([]string, 0, len(permCatalog))
 	for _, c := range permCatalog {
 		all = append(all, c.Perm)
@@ -272,6 +274,9 @@ var routePerms = map[string]string{
 	"POST /api/rules/apply":          PermRulesWrite,
 	"GET /api/config":                PermConfigRead,
 	"POST /api/config":               PermConfigWrite,
+	"GET /api/map":                   PermCasesRead,
+	"GET /api/exposure":              PermSensorsRead,
+	"POST /api/exposure/run":         PermExposureRun,
 	"GET /api/groundtruth":           PermSensorsRead,
 	"POST /api/groundtruth/run":      PermScanRun,
 	"GET /api/users":                 PermUsersManage,

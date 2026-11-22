@@ -10,6 +10,7 @@ const RBAC_GUARDS = [
   ['rules:write', '[onclick*="addRule("],[onclick*="saveRules("],[onclick*="applyRulesNow("],[onclick*="delRule("],[onclick*="moveRule("]'],
   ['config:write', '[onclick*="saveConfig("],[onclick*="saveAiConfig("],[onclick*="saveGtConfig("],[onclick*="toggleAdmin("],[onclick*="deleteUser("]'],
   ['groundtruth:run', '[onclick*="runGroundTruth("]'],
+  ['exposure:run', '[onclick*="runExposure("]'],
 ];
 
 async function rbacInit() {
