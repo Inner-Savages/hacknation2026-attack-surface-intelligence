@@ -2,9 +2,8 @@
 
 One VM, one compose project. The operator console runs in demo+live mode
 (synthetic fleet plus real events) and is reachable **only** through a Cloudflare
-Tunnel, normally gated by Cloudflare Access (one-time PIN; bypassed while the jury is
-judging). No port is published on the host. Console accounts are created by the
-operator; self-registration is off.
+Tunnel gated by Cloudflare Access (one-time PIN). No port is published on the
+host. Console accounts are created by the operator; self-registration is off.
 
 ```
 browser -> Cloudflare Access (OTP) -> Tunnel -> cloudflared --(compose net "demo")--> console:18081
@@ -21,7 +20,12 @@ curl -fsSL https://get.docker.com | sudo sh        # Docker Engine + compose plu
 sudo usermod -aG docker "$USER" && newgrp docker
 ```
 
-The images on ghcr.io are public, no registry login is needed.
+Log in to ghcr.io (the repo is private) with a classic PAT that has only
+`read:packages`:
+
+```bash
+echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
+```
 
 ## 2. Cloudflare (dashboard, once)
 

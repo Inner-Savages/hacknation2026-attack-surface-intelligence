@@ -1,7 +1,8 @@
 # Zgodność z treścią zadania
 
-**W skrócie:** wszystkie 16 wymagań z sekcji 2 zadania ma działającą realizację, cztery z zastrzeżeniami (10, 11, 14, 16). Z zakresu
-dodatkowego brakuje jednej pozycji (różnice zależne od pory dnia). Luki są zebrane w [sekcji 6](#6-najważniejsze-luki-od-najpoważniejszej).
+**W skrócie:** z 16 wymagań sekcji 2 zadania 12 jest spełnionych, 4 częściowo (10, 11, 14, 16). W zakresie minimalnym 9 z 13 pozycji
+jest pełnych, 4 częściowe; w dodatkowym brakuje jednej (różnice zależne od pory dnia), dwie są częściowe. Luki zebrano w
+[sekcji 6](#6-najważniejsze-luki-od-najpoważniejszej).
 
 Stan na 2026-11-22. Każdy wiersz sprawdzono w kodzie albo uruchomieniem: `go test ./...` (wszystkie pakiety przechodzą), lokalny skan
 z diffem i eksportem (CSV, nmap XML, DefectDojo `-dry-run`), `scanner schedule` w otwartym oknie, lokalna konsola `-demo` z czterema
