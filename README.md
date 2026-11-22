@@ -37,6 +37,10 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   Basal+Laya+Kev cascade that can sit between the sensor and the trigger
   (`edgegate serve`): it scores events, forwards the interesting ones with a
   `score`, and always passes events about services that went silent or closed.
+  The philosophy of the central side is **score, correlate and request active
+  verification — never suppress**: models rank and annotate, the trigger's
+  targeted scans bring ground truth, and the console correlates that evidence
+  on the case; a model alone never closes or hides an alert.
   Without it the sensor talks to the trigger directly. Weights (~2.5 GB) are
   downloaded and SHA256-verified from pinned upstream revisions, not committed.
   The 50% target is calibrated on synthetic data and is not a hard quota.
@@ -93,7 +97,9 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   allow-listed addresses are scanned; events about the scanner's own addresses are
   ignored; bursts are debounced; a quiet window drops events caused by the scan itself;
   per-target cooldowns, a 30-minute pause on re-verifying targets found alive, a global
-  rate limit and a pending-job cap keep the active side bounded.
+  rate limit and a pending-job cap keep the active side bounded. With `-findings-url`
+  every finding is also posted to the operator console, which correlates the active
+  evidence with the case the passive event opened (`POST /findings`).
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.

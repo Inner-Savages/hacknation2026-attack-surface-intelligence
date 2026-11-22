@@ -92,6 +92,27 @@ trigger to skip it.
   disappeared.
 - A full queue answers 503 for the whole batch; the sensor retries it.
 
+**The loop closes at the console.** The trigger (compose profile `serve`,
+host network) turns every forwarded event into a targeted active scan —
+`service_new`/banner change → scan of that port, `service_silent` →
+verification "is it really gone?" — and posts each finding to the console
+(`-findings-url http://127.0.0.1:18081/findings`, bearer
+`$ASI_CENTRAL_TOKEN`). The console correlates the finding with the case the
+passive event opened: verdict, open services with recognized technologies
+and the diff against the previous scan land as an audited note and a
+`WERYFIKACJA` entry in the case history and live feed. A finding without a
+matching case opens one, so verified evidence is never orphaned. The
+evidence never changes the status by itself — scoring, correlating and
+requesting active verification is the model's job; the verdict belongs to
+the operator (human or AI).
+
+The reverse direction works too: with `ASI_TRIGGER_URL` (and
+`ASI_TRIGGER_TOKEN`) set on the console, its **Zleć aktywny skan hosta**
+action sends a targeted verification request to the trigger instead of only
+recording intent. The request travels as a synthetic sensor event through
+the trigger's normal policy (allow list, debounce, cooldown, rate limit),
+so the console cannot become a scan amplifier.
+
 ```sh
 make cascade50-up      # models + Basal, Laya, Kev
 make cascade50-serve   # gate on 127.0.0.1:8098 -> trigger on 127.0.0.1:8099

@@ -64,11 +64,19 @@ func main() {
 		log.Fatal(err)
 	}
 	srv := &server{store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demo: *demo, feed: feed, ai: ai, aiAuto: *aiAuto, operator: *operator}
+	// Active verification loop: the trigger ships findings back to
+	// POST /findings; the console's scan action requests verification
+	// through the trigger when its URL is configured.
+	srv.triggerURL = os.Getenv("ASI_TRIGGER_URL")
+	if srv.triggerToken = os.Getenv("ASI_TRIGGER_TOKEN"); srv.triggerToken == "" {
+		srv.triggerToken = os.Getenv("SOTW_WEBHOOK_TOKEN")
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.Handle("/api/", srv.routes())
 	mux.Handle("/events", srv.routes())
 	mux.Handle("/logs", srv.routes())
+	mux.Handle("/findings", srv.routes())
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	aiInfo := "disabled"

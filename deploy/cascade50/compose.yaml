@@ -125,7 +125,26 @@ services:
       - ../../deploy/cascade50:/work/deploy/cascade50:ro
       - edge-data:/data
     command: [serve, -listen, "127.0.0.1:8098", -trigger-url, "http://127.0.0.1:8099/events", -outbox-dir, /data/serve-outbox]
+  # Trigger: closes the sensor → scanner loop for the serve flow (see
+  # README). The gate forwards scored events here; every finding (verdict,
+  # open services, technologies, diff against the previous scan) is posted
+  # to the console, which correlates it with the case the event opened.
+  # Host network so the scanner reaches the monitored hosts.
+  trigger:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      target: trigger
+    profiles: [serve]
+    network_mode: host
+    environment:
+      SOTW_WEBHOOK_TOKEN: ${SOTW_WEBHOOK_TOKEN:-agh-lab-token}
+      ASI_CENTRAL_TOKEN: ${ASI_CENTRAL_TOKEN:-cascade50-lab}
+    volumes:
+      - trigger-state:/data
+    command: [-allow, "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8", -state, /data, -findings-url, "http://127.0.0.1:18081/findings"]
 volumes:
   central-data:
   edge-data:
   console-data:
+  trigger-state:
