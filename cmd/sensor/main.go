@@ -56,7 +56,7 @@ func main() {
 		learn       = flag.Duration("learn", 0, "build the baseline without emitting events for this long")
 		sweepEvery  = flag.Duration("sweep", 10*time.Second, "how often to check for silent hosts/services")
 		saveEvery   = flag.Duration("save", 30*time.Second, "how often to persist the baseline")
-		webhookURL  = flag.String("webhook", "", "also POST events (JSON arrays) to this URL, e.g. http://127.0.0.1:8090/events")
+		webhookURL  = flag.String("webhook", "", "also POST events (JSON arrays) to this URL, e.g. http://127.0.0.1:8099/events")
 		webhookTok  = flag.String("webhook-token", os.Getenv("SOTW_WEBHOOK_TOKEN"), "bearer token for -webhook (default $SOTW_WEBHOOK_TOKEN)")
 		name        = flag.String("name", "", "sensor name added to every event")
 	)

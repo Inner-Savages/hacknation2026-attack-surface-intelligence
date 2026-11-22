@@ -152,3 +152,18 @@ func TestScannerChunksInParallelAndRecordsFailures(t *testing.T) {
 		t.Fatalf("chunk stats: %+v", res.Chunks[0])
 	}
 }
+
+func TestParseXMLExtraPortsTellLiveFromAbsent(t *testing.T) {
+	xml := func(addr, state string) []byte {
+		return []byte(`<nmaprun><host><status state="up" reason="user-set"/><address addr="` + addr + `" addrtype="ipv4"/>` +
+			`<ports><extraports state="` + state + `" count="100"/></ports></host></nmaprun>`)
+	}
+	live, _ := ParseXML(xml("172.28.0.100", "closed"))
+	gone, _ := ParseXML(xml("172.28.0.250", "filtered"))
+	if len(live[0].ExtraPorts) != 1 || live[0].ExtraPorts[0].Count != 100 || !live[0].Responded() {
+		t.Fatalf("live: %+v", live[0])
+	}
+	if gone[0].Responded() {
+		t.Fatalf("absent host must not count as responding: %+v", gone[0])
+	}
+}
