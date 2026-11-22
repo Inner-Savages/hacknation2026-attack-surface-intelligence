@@ -1481,6 +1481,14 @@ const ASSET_CLASS = {
   serwer:    {label: 'Serwer',    cls: 'zamkniety',      icon: '▣'},
   stacja:    {label: 'Stacja',    cls: 'zamkniety',      icon: '⌨'},
   sieciowe:  {label: 'Sieciowe',  cls: 'nowe',           icon: '⇄'},
+  kontener:  {label: 'Kontener (Docker)',     cls: 'nowe',      icon: '🐳'},
+  brama:     {label: 'Brama/host kontenerów', cls: 'nowe',      icon: '⇄'},
+  baza:      {label: 'Baza danych',           cls: 'zamkniety', icon: '🗄'},
+  broker:    {label: 'Broker komunikatów',    cls: 'zamkniety', icon: '✉'},
+  git:       {label: 'Serwer Git',            cls: 'zamkniety', icon: '⑂'},
+  web:       {label: 'Aplikacja webowa',      cls: 'zamkniety', icon: '🌐'},
+  cache:     {label: 'Cache (Redis)',         cls: 'zamkniety', icon: '⚡'},
+  pliki:     {label: 'Serwer plików (FTP)',   cls: 'zamkniety', icon: '📁'},
   nieznane:  {label: 'Nieznane',  cls: 'zamkniety',      icon: '?'},
 };
 const assetState = {classFilter: '', selected: null, detail: null};
@@ -1496,7 +1504,7 @@ async function viewAssets() {
   const hosts = d.hosts || [];
   const classes = d.classes || {};
   const total = d.total || 0;
-  const order = ['kamera','drukarka','telefon','iot','serwer','stacja','sieciowe','nieznane'];
+  const order = ['kamera','drukarka','telefon','iot','serwer','stacja','sieciowe','baza','broker','git','web','cache','pliki','kontener','brama','nieznane'];
   const present = order.filter(c => classes[c]);
 
   if (!total) {

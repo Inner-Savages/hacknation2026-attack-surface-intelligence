@@ -27,6 +27,14 @@ const (
 	Workstation = "stacja"
 	Network     = "sieciowe" // router, switch, access point
 	Phone       = "telefon"
+	Container   = "kontener" // Docker/OCI container (locally administered MAC 02:42:…)
+	Gateway     = "brama"    // container-bridge gateway / host running the containers
+	Database    = "baza"     // PostgreSQL, MySQL, MSSQL, MongoDB, Elasticsearch
+	Broker      = "broker"   // RabbitMQ/AMQP, Kafka, ActiveMQ
+	Git         = "git"      // Gitea, GitLab, Gogs
+	Web         = "web"      // web application / HTTP server
+	Cache       = "cache"    // Redis, Memcached
+	FileServer  = "pliki"    // FTP, SFTP file transfer
 )
 
 // Evidence is one reason the classifier believed what it believed — kept so
@@ -42,6 +50,9 @@ type Input struct {
 	Ports       []int    // open TCP ports the sensor reported
 	Banners     []string // service banners (from control scans)
 	TLSSubjects []string // certificate subjects (from TLS probes)
+	IP          string   // host address; used to spot the bridge gateway (.1)
+	Products    []string // "product version" strings from an imported/scanned result
+	Titles      []string // HTTP page titles from an imported/scanned result
 }
 
 // Output is the verdict: the winning class, how much evidence backs it and
@@ -76,34 +87,60 @@ func Classify(in Input) Output {
 	}
 
 	out := Output{Class: Unknown}
+	docker := isDockerMAC(in.MAC)
+	var platform *Evidence
 	if vendor, class, ok := lookupOUI(in.MAC); ok {
 		out.Vendor = vendor
 		add(class, 0.8, Evidence{Source: "OUI", Detail: vendor + " (" + ouiPrefix(in.MAC) + ")"})
+	} else if docker {
+		out.Vendor = "Docker"
+		ev := Evidence{Source: "MAC", Detail: "02:42 — kontener Docker (adres lokalny)"}
+		platform = &ev
+		add(Container, 0.45, ev)
 	}
+	// A port reported by both the sensor and a scan counts once.
+	seenPort := map[int]bool{}
+	var ports []int
 	for _, p := range in.Ports {
+		if !seenPort[p] {
+			seenPort[p] = true
+			ports = append(ports, p)
+		}
+	}
+	for _, p := range ports {
 		if rule, ok := portRules[p]; ok {
 			add(rule.class, rule.weight, Evidence{Source: "port", Detail: itoa(p) + " (" + rule.name + ")"})
 		}
 	}
-	texts := make([]string, 0, len(in.Banners)+len(in.TLSSubjects))
-	texts = append(texts, in.Banners...)
-	for _, s := range in.TLSSubjects {
-		texts = append(texts, s)
+	type text struct{ s, src string }
+	var texts []text
+	for _, b := range in.Banners {
+		texts = append(texts, text{b, "banner"})
+	}
+	for _, b := range in.Products {
+		texts = append(texts, text{b, "produkt"})
+	}
+	for _, b := range in.Titles {
+		texts = append(texts, text{b, "tytuł HTTP"})
+	}
+	for _, b := range in.TLSSubjects {
+		texts = append(texts, text{b, "TLS"})
 	}
 	for _, t := range texts {
-		low := strings.ToLower(t)
+		low := strings.ToLower(t.s)
 		if low == "" {
 			continue
 		}
-		src := "banner"
-		if containsAny(in.TLSSubjects, t) {
-			src = "TLS"
-		}
 		for _, kw := range bannerRules {
 			if strings.Contains(low, kw.substr) {
-				add(kw.class, kw.weight, Evidence{Source: src, Detail: quote(t) + " → " + kw.substr})
+				add(kw.class, kw.weight, Evidence{Source: t.src, Detail: quote(t.s) + " → " + kw.substr})
 			}
 		}
+	}
+	// Bridge gateway: x.x.x.1 whose only visible service is SSH (the VM host
+	// reaching the container network), or nothing at all, on a Docker MAC.
+	if gw := gatewayEvidence(in, ports, docker); gw != nil {
+		add(Gateway, 0.9, *gw)
 	}
 
 	var best string
@@ -125,11 +162,47 @@ func Classify(in Input) Output {
 	}
 	out.Class = best
 	out.Reasons = bv.proofs
+	// The platform fact (Docker container) is context for every role label.
+	if platform != nil && best != Container {
+		out.Reasons = append(append([]Evidence{}, bv.proofs...), *platform)
+	}
 	out.Confidence = bv.weight
 	if out.Confidence > 0.98 {
 		out.Confidence = 0.98
 	}
 	return out
+}
+
+// isDockerMAC reports whether the MAC is a Docker-assigned address
+// (02:42:…, locally administered).
+func isDockerMAC(mac string) bool {
+	return strings.HasPrefix(stripMAC(mac), "0242")
+}
+
+// gatewayEvidence recognises the Docker bridge gateway: the .1 address of a
+// container subnet, answering at most on SSH.
+func gatewayEvidence(in Input, ports []int, docker bool) *Evidence {
+	if !strings.HasSuffix(in.IP, ".1") || strings.Count(in.IP, ".") != 3 {
+		return nil
+	}
+	for _, p := range ports {
+		if p != 22 {
+			return nil
+		}
+	}
+	if !docker && in.MAC != "" {
+		return nil
+	}
+	d := in.IP + " — adres .1 podsieci"
+	if len(ports) == 1 {
+		d += ", tylko port 22"
+	} else {
+		d += ", brak otwartych usług"
+	}
+	if docker {
+		d += ", MAC Docker 02:42"
+	}
+	return &Evidence{Source: "topologia", Detail: d}
 }
 
 // ouiPrefix normalises a MAC to its 6-hex-digit OUI prefix ("44:19:b6").
@@ -221,26 +294,39 @@ type portRule struct {
 
 // portRules vote from the service set alone: a port nobody else would open
 // is a mid-strength signal (firewalls and forwarded ports keep it below
-// OUI). Ports like 80/443 say nothing and stay unmapped.
+// OUI). Generic ports (SSH, HTTP) vote weakly: they only decide a class when
+// nothing more specific is present, and a Docker MAC alone keeps "kontener".
 var portRules = map[int]portRule{
-	9100: {Printer, 0.65, "JetDirect/raw printing"},
-	515:  {Printer, 0.6, "LPD"},
-	631:  {Printer, 0.6, "IPP"},
-	554:  {Camera, 0.7, "RTSP"},
-	8554: {Camera, 0.6, "RTSP (alt)"},
-	1883: {IoT, 0.6, "MQTT"},
-	8883: {IoT, 0.55, "MQTT/TLS"},
-	5683: {IoT, 0.55, "CoAP"},
-	3306: {Server, 0.6, "MySQL"},
-	5432: {Server, 0.6, "PostgreSQL"},
-	6379: {Server, 0.55, "Redis"},
-	9200: {Server, 0.55, "Elasticsearch"},
-	1433: {Server, 0.55, "MSSQL"},
-	445:  {Server, 0.5, "SMB"},
-	3389: {Workstation, 0.55, "RDP"},
-	5900: {Workstation, 0.55, "VNC"},
-	5060: {Phone, 0.6, "SIP"},
-	5061: {Phone, 0.6, "SIP/TLS"},
+	9100:  {Printer, 0.65, "JetDirect/raw printing"},
+	515:   {Printer, 0.6, "LPD"},
+	631:   {Printer, 0.6, "IPP"},
+	554:   {Camera, 0.7, "RTSP"},
+	8554:  {Camera, 0.6, "RTSP (alt)"},
+	1883:  {IoT, 0.6, "MQTT"},
+	8883:  {IoT, 0.55, "MQTT/TLS"},
+	5683:  {IoT, 0.55, "CoAP"},
+	3306:  {Database, 0.65, "MySQL"},
+	5432:  {Database, 0.65, "PostgreSQL"},
+	1433:  {Database, 0.6, "MSSQL"},
+	27017: {Database, 0.6, "MongoDB"},
+	9200:  {Database, 0.6, "Elasticsearch"},
+	6379:  {Cache, 0.6, "Redis"},
+	11211: {Cache, 0.55, "Memcached"},
+	5672:  {Broker, 0.65, "AMQP/RabbitMQ"},
+	15672: {Broker, 0.6, "RabbitMQ management"},
+	9092:  {Broker, 0.55, "Kafka"},
+	3000:  {Git, 0.5, "Gitea (domyślny port)"},
+	21:    {FileServer, 0.6, "FTP"},
+	445:   {Server, 0.5, "SMB"},
+	22:    {Server, 0.3, "SSH"},
+	80:    {Web, 0.5, "HTTP"},
+	443:   {Web, 0.5, "HTTPS"},
+	8080:  {Web, 0.5, "HTTP (alt)"},
+	8443:  {Web, 0.5, "HTTPS (alt)"},
+	3389:  {Workstation, 0.55, "RDP"},
+	5900:  {Workstation, 0.55, "VNC"},
+	5060:  {Phone, 0.6, "SIP"},
+	5061:  {Phone, 0.6, "SIP/TLS"},
 }
 
 type bannerRule struct {
@@ -263,9 +349,18 @@ var bannerRules = []bannerRule{
 	{"shelly", IoT, 0.8}, {"tuya", IoT, 0.8}, {"esphome", IoT, 0.8},
 	{"esp8266", IoT, 0.7}, {"esp32", IoT, 0.6}, {"mqtt", IoT, 0.5},
 	{"grandstream", Phone, 0.8}, {"yealink", Phone, 0.8}, {"asterisk", Phone, 0.6},
-	{"openssh", Server, 0.4}, {"mysql", Server, 0.6}, {"postgres", Server, 0.6},
-	{"redis", Server, 0.6}, {"elasticsearch", Server, 0.6}, {"nginx", Server, 0.35},
-	{"apache", Server, 0.35}, {"microsoft-iis", Server, 0.4},
+	{"openssh", Server, 0.3}, {"dropbear", Server, 0.3},
+	{"mysql", Database, 0.6}, {"mariadb", Database, 0.6}, {"postgres", Database, 0.6},
+	{"mongodb", Database, 0.6}, {"elasticsearch", Database, 0.6}, {"mssql", Database, 0.6},
+	{"redis", Cache, 0.6}, {"memcached", Cache, 0.6},
+	{"rabbitmq", Broker, 0.7}, {"amqp", Broker, 0.6}, {"activemq", Broker, 0.7}, {"kafka", Broker, 0.6},
+	{"gitea", Git, 0.8}, {"gitlab", Git, 0.8}, {"gogs", Git, 0.8},
+	{"vsftpd", FileServer, 0.6}, {"proftpd", FileServer, 0.6}, {"pure-ftpd", FileServer, 0.6},
+	{"filezilla", FileServer, 0.6}, {" ftp", FileServer, 0.4},
+	{"gunicorn", Web, 0.6}, {"werkzeug", Web, 0.6}, {"flask", Web, 0.6}, {"uvicorn", Web, 0.6},
+	{"express", Web, 0.5}, {"tomcat", Web, 0.6}, {"nginx", Web, 0.5}, {"apache", Web, 0.5},
+	{"caddy", Web, 0.5}, {"lighttpd", Web, 0.5}, {"node.js", Web, 0.5},
+	{"microsoft-iis", Web, 0.5},
 }
 
 func containsAny(list []string, s string) bool {
