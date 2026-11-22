@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,120 @@ func TestRunEscalatesSilentStealthSuspect(t *testing.T) {
 	gt.run("test")
 	if cases := store.ListCases(); len(cases) != 1 {
 		t.Fatalf("repeat run must not re-escalate the same drift, got %d cases", len(cases))
+	}
+}
+
+func TestTimelineRecordsTransitions(t *testing.T) {
+	r := &hostRegistry{hosts: map[string]*HostRecord{}}
+	now := time.Now()
+
+	r.Observe(sensorLog{Type: "service_new", IP: "10.0.0.5", Port: 80, Proto: "tcp"}, "edge-1", now)
+	r.Observe(sensorLog{Type: "host_silent", IP: "10.0.0.5"}, "edge-1", now.Add(time.Minute))
+	r.Observe(sensorLog{Type: "service_new", IP: "10.0.0.5", Port: 443, Proto: "tcp"}, "edge-1", now.Add(2*time.Minute))
+
+	evs := r.timeline(time.Time{}, time.Time{})
+	var types []string
+	for _, e := range evs {
+		types = append(types, e.Type)
+	}
+	// host_new + service_new on first sight, then silence, then waking up
+	// with a new service.
+	want := []string{"host_new", "service_new", "host_silent", "host_active", "service_new"}
+	if strings.Join(types, ",") != strings.Join(want, ",") {
+		t.Fatalf("timeline = %v, want %v", types, want)
+	}
+	// The service events carry the port for the map's edges.
+	if evs[1].Port != 80 || evs[4].Port != 443 {
+		t.Fatalf("service events lost their ports: %+v", evs)
+	}
+
+	// The from/to window bounds the replay.
+	windowed := r.timeline(now.Add(30*time.Second), now.Add(90*time.Second))
+	if len(windowed) != 1 || windowed[0].Type != "host_silent" {
+		t.Fatalf("windowed timeline = %+v", windowed)
+	}
+}
+
+func TestRegistryPersistenceKeepsTimeline(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := openHostRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	reg.Observe(sensorLog{Type: "service_new", IP: "10.0.0.7", Port: 22, Proto: "tcp"}, "edge-2", now)
+	if err := reg.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	reg2, err := openHostRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg2.hosts) != 1 || len(reg2.timeline(time.Time{}, time.Time{})) != 2 {
+		t.Fatalf("roundtrip lost data: hosts=%d events=%d", len(reg2.hosts), len(reg2.timeline(time.Time{}, time.Time{})))
+	}
+}
+
+func TestRegistryReadsLegacyFormat(t *testing.T) {
+	dir := t.TempDir()
+	reg, err := openHostRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The pre-timeline format was a bare map of hosts.
+	legacy := `{"10.0.0.9": {"ip": "10.0.0.9", "sensor_id": "edge-1", "first_seen": "2026-01-01T00:00:00Z", "last_seen": "2026-01-01T00:00:00Z", "last_type": "service_new"}}`
+	if err := os.WriteFile(reg.path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reg2, err := openHostRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg2.hosts["10.0.0.9"] == nil {
+		t.Fatal("legacy hosts.json must still load")
+	}
+	// …and saving upgrades it to the wrapped format without losing hosts.
+	if err := reg2.save(); err != nil {
+		t.Fatal(err)
+	}
+	reg3, err := openHostRegistry(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reg3.hosts["10.0.0.9"] == nil {
+		t.Fatal("upgraded file lost hosts")
+	}
+}
+
+func TestTimelineRetention(t *testing.T) {
+	r := &hostRegistry{hosts: map[string]*HostRecord{}}
+	old := time.Now().Add(-topologyMaxAge - time.Hour)
+	r.mu.Lock()
+	r.addEvent(topologyEvent{Time: old, Type: "host_new", IP: "10.0.0.1"})
+	r.addEvent(topologyEvent{Time: time.Now(), Type: "host_new", IP: "10.0.0.2"})
+	r.mu.Unlock()
+	evs := r.timeline(time.Time{}, time.Time{})
+	if len(evs) != 1 || evs[0].IP != "10.0.0.2" {
+		t.Fatalf("retention should drop events older than %s: %+v", topologyMaxAge, evs)
+	}
+}
+
+func TestRunWritesVerdictsToTimeline(t *testing.T) {
+	open := map[string]string{"10.0.0.70:22": "SSH-2.0-OpenSSH_9.6"}
+	gt, _ := newTestGroundTruth(t, fakeDial(open))
+	now := time.Now()
+	gt.registry.Observe(sensorLog{Type: "host_silent", IP: "10.0.0.70"}, "edge-4", now.Add(-2*time.Hour))
+	gt.run("test")
+
+	var gtEvents []string
+	for _, e := range gt.registry.timeline(time.Time{}, time.Time{}) {
+		if strings.HasPrefix(e.Type, "gt_") {
+			gtEvents = append(gtEvents, e.Type)
+		}
+	}
+	if len(gtEvents) != 1 || gtEvents[0] != "gt_quiet" {
+		t.Fatalf("expected one gt_quiet verdict on the timeline, got %v", gtEvents)
 	}
 }
 

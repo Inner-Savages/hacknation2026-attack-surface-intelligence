@@ -381,6 +381,28 @@ runs **control scans** of the longest-silent hosts:
   and `NVD_API_KEY` raises the query quota. Lookup failures degrade to a
   plain case, never to a failed scan.
 
+### Attack-surface map (topology + timeline)
+
+The alert list answers "what happened"; the **Mapa** tab answers "what does
+my network look like and how is it drifting". The same passive registry
+that feeds ground truth now also keeps a durable **topology journal**: every
+state transition the sensor reports (host appeared, host went silent, host
+came back, service appeared, service went quiet) plus every control-scan
+verdict is appended with the sensor's own timestamp and persisted in
+`hosts.json` (bounded: 5000 events / 30 days, oldest first out).
+
+- The graph groups hosts by `/24` and draws services as port chips on each
+  host; colors carry the state at the selected moment — active, passively
+  silent, changed under silence (control-scan finding), unreachable.
+- The **timeline scrubber** replays the journal: dragging it (or pressing
+  *Odtwórz*) rebuilds the network state at any moment, so a drift becomes
+  visible as it happened — what appeared, what changed, what vanished.
+  *Na żywo* jumps back to the live edge.
+- Clicking a host shows its state at the selected moment, sensor, first
+  and last contact, the latest scan verdict and its own event history.
+- `GET /api/map` returns the current per-host records plus the journal,
+  with optional `from`/`to` (RFC3339) bounds on the timeline.
+
 
 On first run the engine seeds a starter list so it is useful out of the
 box. It ports the heuristics the edge bakes into its feature extractor
