@@ -1,6 +1,6 @@
 name: CI
 
-# Testy z pokryciem, potem obrazy sensora, generatora ruchu i skanera do ghcr.io (amd64 + arm64).
+# Testy z pokryciem, potem obrazy sensora, generatora ruchu, skanera i triggera do ghcr.io (amd64 + arm64).
 # main -> :latest i :sha-<commit>, tag vX.Y.Z -> :X.Y.Z i :X.Y.
 # Badge pokrycia: plik coverage.json na gałęzi `badges`, rysowany przez shields.io.
 on:
@@ -75,7 +75,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        target: [sensor, traffic, scanner]
+        target: [sensor, traffic, scanner, trigger]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
