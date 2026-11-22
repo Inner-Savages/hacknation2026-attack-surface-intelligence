@@ -2,7 +2,7 @@
 
 Rozwiązanie na wyzwanie *Attack Surface Intelligence* (Centrum Bezpieczeństwa Informacji AGH, HackNation 2026).
 
-> **Stan dokumentu.** Opisuje gałąź `main` po scaleniu PR #1–#23 (stan z 2026-11-22). Każdy wiersz mapy wymagań
+> **Stan dokumentu.** Opisuje gałąź `main` po scaleniu PR #1–#28 (stan z 2026-11-22). Zgodność z treścią zadania wiersz po wierszu, z dowodami w kodzie: [`COMPLIANCE.md`](COMPLIANCE.md). Każdy wiersz mapy wymagań
 > (sekcja 9) zweryfikowano w kodzie albo uruchomieniem. Liczby (czasy, progi, domyślne wartości) pochodzą z kodu
 > albo z pomiarów wykonanych na tej maszynie; źródło jest podane przy każdej. Luki są opisane wprost w sekcji 10.
 
@@ -80,7 +80,7 @@ Trzy tryby pracy tego samego potoku (`internal/pipeline`):
 | Model wyników | `internal/result` | wspólny model `Scan`/`Host`/`Service`/`Tech`; jeden skan = jeden dokument JSON |
 | Konsola | `cmd/console` | panel operatora: logowanie, role (RBAC), alerty/eskalacje, flota sensorów, mapa powierzchni ataku, ekspozycja zewnętrzna, monitor TLS, inwentarz zasobów, ranking ryzyka, cele i import, nadpisania użytkownika, reguły, audyt |
 | Szyfrowanie | `internal/atrest`, `cmd/console/crypt.go` | AES-256-GCM dla trwałych plików konsoli |
-| Klasyfikacja urządzeń | `internal/classify` | pasywnie z OUI adresu MAC, portów, banerów i certyfikatów: drukarka, kamera, IoT, serwer, stacja, sieciowe, telefon |
+| Klasyfikacja urządzeń | `internal/classify` | pasywnie z OUI adresu MAC, portów, banerów i certyfikatów, a po imporcie skanu także z produktów i tytułów HTTP: 16 klas (drukarka, kamera, iot, serwer, stacja, sieciowe, telefon, kontener, brama, baza, broker, git, web, cache, pliki, nieznane) |
 | Monitor TLS | `internal/tlspolicy`, `cmd/console/tls.go` | wygasanie certyfikatu 30/14/7 dni, wygasły, self-signed, zmiana CA, słaba kryptografia |
 | Ekspozycja | `internal/exposure`, `cmd/console/exposure.go` | korelacja widoku od środka (sensor) z widokiem z internetu (Shodan, Censys) |
 | Ranking ryzyka | `internal/riskscore`, `cmd/console/risk.go` | wynik 0–100 na host z jawnym rozbiciem na czynniki |
@@ -262,7 +262,7 @@ Wymagania: Go 1.26+, `nmap`, `libpcap-dev` (sensor), Docker (laboratorium).
 make build                      # bin/sensor, scanner, trigger, traffic, edgegate
 make console                    # bin/console
 make test                       # go vet + go test (potrzebuje libpcap-dev)
-make images                     # lokalne obrazy sensor/scanner/trigger/traffic pod nazwami z rejestru
+make images                     # lokalne obrazy sensor/scanner/trigger/traffic pod nazwami z rejestru (obraz console buduje CI)
 ```
 
 Skan ręczny, porównanie, eksport:
@@ -391,8 +391,9 @@ bezpieczeństwo skanera (sekcja 5.1), role (5.2), import/eksport (sekcje 4 i 7),
 - **Bramka AI (edgegate)** jest opcjonalna i w demo online wyłączona (UI konsoli pokazuje „AI: wyłączone”); wagi modeli
   mają ~2,5 GB i nie są w repozytorium. Cel 50% jest skalibrowany na danych syntetycznych, nie jest twardą kwotą.
 - **Dane demo.** W trybie `-demo` flota (137 sensorów), sprawy i ranking ryzyka pochodzą z generatora; dopiero prawdziwe
-  zdarzenia z sensora (lab AGH) napełniają Mapę i Zasoby. Zasoby z laboratorium Dockera są głównie „nieznane”, bo klasyfikacja
-  używa OUI adresu MAC, a w sieciach mostowych sensor widzi niewiele różnych producentów.
+  zdarzenia z sensora (lab AGH) napełniają Mapę i Zasoby. Zasoby z laboratorium Dockera dostają od #28 konkretne klasy (`kontener`, `brama`, `baza`,
+  `broker`, `git`, `web`…) z portów, produktów i tytułów HTTP z zaimportowanego skanu; sam OUI w sieci mostowej niczego
+  nie rozstrzyga (adresy `02:42:…` to kontenery), więc bez skanu wiele hostów zostaje „nieznanych”.
 - **Reguła „N skanów z rzędu”** dla hosta nieaktywnego w trybie okresowym nie jest zaimplementowana (sekcja 6.3).
 - **Wyniki** skanera to pliki JSON bez bazy danych; szyfrowane są pliki konsoli, nie wyjście CLI.
 - **Skala >10 000 adresów** nie została zmierzona.

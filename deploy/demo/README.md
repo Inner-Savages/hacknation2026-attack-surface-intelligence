@@ -60,8 +60,9 @@ state at rest (AES-256-GCM); **back it up** — without it the volume is unreada
 
 Set `ASI_VIEWER_LOGIN=jury` in `.env` (default in `.env.example`); the account is
 created with the built-in `viewer` role and the password from
-`secrets/viewer_password`. `viewer` can read cases, sensors, logs and rules and
-nothing else (verified: `POST /api/exposure/run` and `GET /api/config` give 403).
+`secrets/viewer_password`. `viewer` has read-only access: cases, sensors, logs, rules,
+targets/inventory/overrides, TLS, assets and the risk ranking, and nothing else (verified:
+`POST /api/exposure/run`, `POST /api/targets`, `POST /api/import` and `GET /api/config` give 403).
 Seeding is idempotent: existing accounts are never overwritten, so to rotate a
 password change it in the UI (or delete the user and restart).
 

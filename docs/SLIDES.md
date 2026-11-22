@@ -1,6 +1,6 @@
 # Silence on the Wire — prezentacja (10 slajdów)
 
-Treść slajdów i notatki mówcy. Stan: `main` po PR #1–#24 (2026-11-22). Liczby pochodzą z kodu albo z pomiarów (źródło w
+Treść slajdów i notatki mówcy. Stan: `main` po PR #1–#28 (2026-11-22). Liczby pochodzą z kodu albo z pomiarów (źródło w
 `ARCHITECTURE.md` i `DEMO.md`). Luki są nazwane wprost na slajdach 8 i 10; nie ukrywaj ich w prezentacji.
 
 ---
@@ -34,7 +34,7 @@ z DefectDojo. Na te trzy pytania odpowiadamy konkretnie na slajdach 6 i 7.
 **Teza:** nie skanuj wszystkiego cały czas; słuchaj ruchu i skanuj tylko tam, gdzie coś się zmieniło.
 
 ```
-ruch ─► sensor ──► (edgegate) ──► trigger ──► nmap + prober HTTP + sygnatury (+CVE/EPSS) ──► konsola, diff, DefectDojo
+ruch ─► sensor ──► (edgegate) ──► trigger ──► nmap + prober HTTP + sygnatury (+CVE/EPSS) ──► konsola (diff, ryzyko) / scanner export (CSV, DefectDojo)
 ```
 
 - Sensor widzi ruch ciągle: nowy host, nowa usługa, zmieniony baner, usługa zamilkła.
@@ -54,7 +54,7 @@ a jego intensywność ogranicza polityka.
 - **trigger**: debounce, cooldown, quiet, limit tempa, allowlista; wyniki do konsoli przez `POST /findings`.
 - **pipeline**: `nmap -sT -sV` + prober GET + sygnatury YAML (38 wbudowanych, importer Wappalyzer/nuclei) + CVE/EPSS (`-cve`).
 - **harmonogram**: okna czasowe, częstotliwość, wznawianie, adaptacyjne paczki (CLI).
-- **konsola**: Alerty, Mapa, Ekspozycja, TLS, Zasoby, Ryzyko, Cele i import, Role.
+- **konsola**: Alerty, Mapa, Ekspozycja, TLS, Zasoby, Ryzyko, Cele i import, Role (nie uruchamia skanów, nie eksportuje do DefectDojo: robi to CLI).
 - **eksport**: CSV / JSON / nmap XML / DefectDojo.
 
 *Notatka mówcy:* Komponenty to osobne binarki połączone webhookami JSON. Bramka AI jest opcjonalna. Wszystko działa w kontenerach

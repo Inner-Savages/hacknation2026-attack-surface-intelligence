@@ -78,7 +78,7 @@ Na trzy pytania odpowiadamy konkretnie na slajdach 6 i 7.
   <div class="box opt"><b>Edgegate</b>opcjonalny scoring AI</div><span class="arrow">➜</span>
   <div class="box"><b>Trigger</b>debounce, cooldown, limity</div><span class="arrow">➜</span>
   <div class="box"><b>Skan celowany</b>nmap + HTTP + sygnatury</div><span class="arrow">➜</span>
-  <div class="box"><b>Konsola</b>diff, ryzyko, DefectDojo</div>
+  <div class="box"><b>Konsola / eksport</b>diff, ryzyko, CSV, DefectDojo (CLI)</div>
 </div>
 
 - Sensor widzi ruch ciągle: nowy host, nowa usługa, zmieniony baner, usługa zamilkła
@@ -105,7 +105,7 @@ a jego intensywność ogranicza polityka.
 </div>
 <div>
 
-- **konsola**: Alerty, Mapa, TLS, Zasoby, Ryzyko, Cele i import, Role
+- **konsola**: Alerty, Mapa, Ekspozycja, TLS, Zasoby, Ryzyko, Cele i import, Role
 - **eksport**: CSV, JSON, nmap XML, **DefectDojo**
 - **edgegate**: kaskada modeli (na demo wyłączona)
 - **wdrożenie**: kontenery bez uprawnień, demo za Cloudflare Tunnel + Access
