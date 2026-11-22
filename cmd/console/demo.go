@@ -144,6 +144,54 @@ func startDemoLogs(feed *LiveFeed, store *Store, active func() bool) {
 	}()
 }
 
+// startDemoEscalations synthesises a fresh escalation about once a minute,
+// routed through the normal intake path (persist + audit + AI triage), so in
+// demo mode the AI operator continuously gets real work and its actions are
+// visible as they would be in production.
+func startDemoEscalations(store *Store, active func() bool, onNew func(sensorID, eventID string)) {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano() + 7))
+	go func() {
+		seq := 0
+		for range time.Tick(20 * time.Second) {
+			if !active() {
+				continue
+			}
+			if rng.Intn(3) > 0 {
+				continue // ~1 escalation per minute on average
+			}
+			sensors := store.ListSensors()
+			online := []*Sensor{}
+			for _, sen := range sensors {
+				if sen.Online {
+					online = append(online, sen)
+				}
+			}
+			if len(online) == 0 {
+				continue
+			}
+			sen := online[rng.Intn(len(online))]
+			typ := demoTypes[rng.Intn(len(demoTypes))]
+			score := 0.35 + rng.Float64()*0.63
+			reason := demoReasons[rng.Intn(len(demoReasons))]
+			unresolved := reason == "model_error" || reason == "timeout" || reason == "fail_open_invalid_event"
+			now := time.Now()
+			seq++
+			env := demoEnvelope(sen.ID, typ, fmt.Sprintf("172.28.%d.%d", rng.Intn(3), 2+rng.Intn(250)), 22, score, reason, unresolved, now)
+			env["event_id"] = fmt.Sprintf("demo-live-%d-%d", now.Unix(), seq)
+			raw, _ := json.Marshal(env)
+			var parsed escalationEnvelope
+			if json.Unmarshal(raw, &parsed) != nil {
+				continue
+			}
+			c := caseFromEnvelope(raw, &parsed)
+			created, err := store.AddEscalation(c)
+			if err == nil && created && onNew != nil {
+				onNew(c.SensorID, c.EventID)
+			}
+		}
+	}()
+}
+
 func demoEnvelope(sensor, typ, ip string, port int, score float64, reason string, unresolved bool, at time.Time) map[string]interface{} {
 	features := make([]float64, 28)
 	features[22] = 1

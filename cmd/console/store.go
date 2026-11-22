@@ -278,11 +278,26 @@ func (s *Store) AddEscalation(c *Case) (created bool, err error) {
 	return true, nil
 }
 
+// Get returns a deep copy of the case, so readers never race with mutations
+// applied through mutate (e.g. the background AI operator).
 func (s *Store) Get(id string) (*Case, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.cases[id]
-	return c, ok
+	if !ok {
+		return nil, false
+	}
+	cp := copyCase(c)
+	return cp, true
+}
+
+func copyCase(c *Case) *Case {
+	cp := *c
+	cp.Notes = append([]Note{}, c.Notes...)
+	cp.History = append([]HistoryEntry{}, c.History...)
+	cp.Actions = append([]ActionRecord{}, c.Actions...)
+	cp.Envelope = append(json.RawMessage{}, c.Envelope...)
+	return &cp
 }
 
 func (s *Store) mutate(id string, fn func(c *Case) (HistoryEntry, error)) error {
@@ -321,7 +336,7 @@ func (s *Store) ListCases() []*Case {
 	defer s.mu.Unlock()
 	out := make([]*Case, 0, len(s.cases))
 	for _, v := range s.cases {
-		out = append(out, v)
+		out = append(out, copyCase(v))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Received.After(out[j].Received) })
 	return out

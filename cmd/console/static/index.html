@@ -511,6 +511,7 @@ async function viewAlert(id) {
                 <div class="analysis-meta">${fmtDateTime(n.at)} · ${esc(n.actor)}</div>
               </div>`).join('') : '<p class="muted" style="font-size:13px">Brak analizy dla tej sprawy. Uruchom ją ręcznie albo poczekaj na autoanalizę nowych eskalacji.</p>'}
             <button class="btn primary" style="width:100%;margin-top:6px" id="aiBtn" onclick="runAnalysis('${c.event_id}')">🤖 ${aiNotes.length ? 'Ponów analizę AI' : 'Uruchom analizę AI'}</button>
+            ${ai?.operator ? `<button class="btn" style="width:100%;margin-top:6px;border-style:dashed" id="opBtn" onclick="runOperator('${c.event_id}')">🧭 Uruchom operatora AI na tej sprawie</button>` : ''}
             <p class="fineprint">Model analizuje kopertę eskalacji i ostatnie logi sensora. ${ai?.operator ? 'W trybie operatora AI sam ocenia zagrożenie i wykonuje działania — wszystkie audytowalne; odcięcie hosta zawsze potwierdza człowiek.' : 'Analiza ma charakter doradczy — decyzję podejmuje operator.'} Dostawcę zmienisz w Ustawieniach (API kompatybilne z OpenAI, także lokalny model).</p>
           ` : `
             <p class="muted" style="font-size:13px">Analiza AI jest wyłączona. Skonfiguruj dostawcę w zakładce <a href="#/ustawienia">Ustawienia</a> (klucz API i adres) albo zmiennymi <code>ASI_AI_API_KEY</code> / <code>ASI_AI_BASE_URL</code> — obsługiwane jest każde API kompatybilne z OpenAI, również lokalny model.</p>
@@ -559,6 +560,16 @@ async function runAnalysis(id) {
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:-3px"></span> Analizuję logi…'; }
   try {
     await post(`/api/alerts/${id}/analysis`, {actor: ACTOR});
+  } catch (e) {
+    alert(e.message);
+  }
+  render();
+}
+async function runOperator(id) {
+  const btn = document.getElementById('opBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:-3px"></span> Operator AI ocenia sprawę…'; }
+  try {
+    await post(`/api/alerts/${id}/operator`, {actor: ACTOR});
   } catch (e) {
     alert(e.message);
   }

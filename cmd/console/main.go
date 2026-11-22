@@ -70,6 +70,12 @@ func main() {
 	}()
 	if *demo {
 		startDemoLogs(feed, store, srv.demoFeedOn)
+		startDemoEscalations(store, srv.demoFeedOn, srv.triageNewCase)
+	}
+	// Operator mode enabled before a restart takes over the open backlog on
+	// boot, exactly like flipping the toggle at runtime.
+	if srv.aiOperatorOn() {
+		go srv.backfillAIOperator(10)
 	}
 
 	sub, err := fs.Sub(staticAssets, "static")

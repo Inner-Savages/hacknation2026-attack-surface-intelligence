@@ -653,6 +653,129 @@ func TestLiveSwitchPurgesDemoData(t *testing.T) {
 	}
 }
 
+// Enabling operator mode takes over the open backlog; a manual endpoint run
+// triages one case; fresh escalations are triaged exactly once.
+func TestAIOperatorActivationPaths(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]string{
+				"role":    "assistant",
+				"content": `{"threat":"low","status":"do_weryfikacji","note":"Niska ocena ryzyka, standardowa zmiana usługi.","action":"observe","confidence":"średnia"}`,
+			}}},
+		})
+	}))
+	defer fake.Close()
+
+	newOpServer := func(t *testing.T, operatorOn bool) (*server, string) {
+		t.Helper()
+		s, _, tok := testServer(t)
+		s.settings.AIBaseURL = fake.URL + "/v1"
+		s.settings.AIAPIKey = "k"
+		s.settings.AIModel = "op-model"
+		s.settings.AIOperator = &operatorOn
+		return s, tok
+	}
+	operatorNoted := func(s *server, id string) bool {
+		c, _ := s.store.Get(id)
+		for _, n := range c.Notes {
+			if strings.Contains(n.Actor, "(operator)") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Backfill: open cases are triaged, closed ones are skipped, the feed
+	// records the takeover.
+	t.Run("backfill", func(t *testing.T) {
+		s, _ := newOpServer(t, true)
+		s.store.AddEscalation(caseFromEnvForTest("b1", "edge-a-1"))
+		s.store.AddEscalation(caseFromEnvForTest("b2", "edge-a-2"))
+		s.store.AddEscalation(caseFromEnvForTest("b3", "edge-a-3"))
+		s.store.mutate("b3", func(c *Case) (HistoryEntry, error) {
+			c.Status = StatusConfirmed
+			return HistoryEntry{At: time.Now(), Kind: "status", Actor: "t", Text: "x"}, nil
+		})
+		s.backfillAIOperator(10)
+		if !operatorNoted(s, "b1") || !operatorNoted(s, "b2") {
+			t.Fatal("open cases were not triaged by the backfill")
+		}
+		if operatorNoted(s, "b3") {
+			t.Fatal("closed case was triaged")
+		}
+		items, _ := s.feed.Since(0, 500)
+		var saw bool
+		for _, e := range items {
+			if strings.Contains(e.Text, "zaległości") {
+				saw = true
+			}
+		}
+		if !saw {
+			t.Fatal("missing backfill feed entry")
+		}
+	})
+
+	// Manual run: 409 when the mode is off, 200 and a triaged case when on.
+	t.Run("manual endpoint", func(t *testing.T) {
+		s, tok := newOpServer(t, false)
+		s.store.AddEscalation(caseFromEnvForTest("m1", "edge-m-1"))
+		h := s.routes()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/m1/operator", nil), tok))
+		if w.Code != 409 {
+			t.Fatalf("expected 409 with operator mode off, got %d", w.Code)
+		}
+		on := true
+		s.settings.AIOperator = &on
+		w = httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/m1/operator", nil), tok))
+		if w.Code != 200 {
+			t.Fatalf("manual operator run failed: %d %s", w.Code, w.Body.String())
+		}
+		if !operatorNoted(s, "m1") {
+			t.Fatal("manual run did not triage the case")
+		}
+	})
+
+	// Fresh escalations are triaged automatically; duplicates are not.
+	t.Run("intake trigger", func(t *testing.T) {
+		s, _ := newOpServer(t, true)
+		h := s.routes()
+		post := func() int {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("POST", "/events", strings.NewReader(escalation("i1", "edge-i-1")))
+			r.Header.Set("Authorization", "Bearer test-token")
+			h.ServeHTTP(w, r)
+			return w.Code
+		}
+		if post() != 202 {
+			t.Fatal("intake rejected the escalation")
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for !operatorNoted(s, "i1") {
+			if time.Now().After(deadline) {
+				t.Fatal("operator did not triage a fresh escalation")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if post() != 202 {
+			t.Fatal("duplicate was not acknowledged")
+		}
+		time.Sleep(400 * time.Millisecond)
+		c, _ := s.store.Get("i1")
+		count := 0
+		for _, n := range c.Notes {
+			if strings.Contains(n.Actor, "(operator)") {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("duplicate delivery re-triaged the case (%d operator notes)", count)
+		}
+	})
+}
+
 // The AI operator triages a case end to end: threat assessment, status,
 // note and a safe action — all audited. Isolation is only armed, never
 // executed by the AI.

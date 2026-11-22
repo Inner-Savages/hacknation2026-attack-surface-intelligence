@@ -120,6 +120,7 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/alerts/{id}/notes", s.needAuth(http.HandlerFunc(s.addNote)))
 	mux.Handle("POST /api/alerts/{id}/actions", s.needAuth(http.HandlerFunc(s.action)))
 	mux.Handle("POST /api/alerts/{id}/analysis", s.needAuth(http.HandlerFunc(s.analysis)))
+	mux.Handle("POST /api/alerts/{id}/operator", s.needAuth(http.HandlerFunc(s.operatorRun)))
 	mux.Handle("GET /api/sensors", s.needAuth(http.HandlerFunc(s.sensors)))
 	mux.Handle("GET /api/logs", s.needAuth(http.HandlerFunc(s.logs)))
 	mux.Handle("GET /api/ai/status", s.needAuth(http.HandlerFunc(s.aiStatus)))
@@ -281,28 +282,64 @@ func (s *server) intake(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "expected escalation envelope", 400)
 		return
 	}
-	if _, err = s.store.AddEscalation(caseFromEnvelope(b, &env)); err != nil {
+	created, err := s.store.AddEscalation(caseFromEnvelope(b, &env))
+	if err != nil {
 		http.Error(w, "persistence failed", 503)
 		return
 	}
-	// AI triage of the fresh case, in the background. In operator mode the
-	// LLM acts autonomously (audited like a human); otherwise auto-analysis
-	// only annotates the case for the human operator.
-	if client := s.aiClient(); client != nil {
-		if c, ok := s.store.Get(env.EventID); ok {
-			switch {
-			case s.aiOperatorOn():
-				go s.runAIOperator(context.Background(), c)
-			case s.aiAuto:
-				go func() {
-					if _, err := s.analyzeCase(context.Background(), c); err != nil {
-						s.feed.Append("ai", env.SensorID, "Autoanaliza AI nie powiodła się: "+err.Error(), nil)
-					}
-				}()
-			}
-		}
+	// AI triage of the fresh case, in the background (duplicates are only
+	// acknowledged, never triaged twice).
+	if created {
+		s.triageNewCase(env.SensorID, env.EventID)
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// triageNewCase runs the configured AI over a freshly created case. In
+// operator mode the LLM acts autonomously (audited like a human); otherwise
+// auto-analysis only annotates the case for the human operator.
+func (s *server) triageNewCase(sensorID, eventID string) {
+	if s.aiClient() == nil {
+		return
+	}
+	c, ok := s.store.Get(eventID)
+	if !ok {
+		return
+	}
+	switch {
+	case s.aiOperatorOn():
+		go s.runAIOperator(context.Background(), c)
+	case s.aiAuto:
+		go func() {
+			if _, err := s.analyzeCase(context.Background(), c); err != nil {
+				s.feed.Append("ai", sensorID, "Autoanaliza AI nie powiodła się: "+err.Error(), nil)
+			}
+		}()
+	}
+}
+
+// backfillAIOperator hands the operator the backlog of open cases when its
+// mode is switched on, so the toggle has an immediate, visible effect
+// instead of waiting for the next escalation.
+func (s *server) backfillAIOperator(limit int) {
+	if s.aiClient() == nil {
+		return
+	}
+	triaged := 0
+	for _, c := range s.store.ListCases() {
+		if triaged >= limit {
+			break
+		}
+		if c.Status != StatusNew && c.Status != StatusVerify {
+			continue
+		}
+		triaged++
+		s.runAIOperator(context.Background(), c)
+		time.Sleep(2 * time.Second) // be gentle with the provider's rate limits
+	}
+	if triaged > 0 {
+		s.feed.Append("ai", "", fmt.Sprintf("Operator AI przejął triaż %d otwartych spraw z zaległości", triaged), nil)
+	}
 }
 
 // intakeLogs accepts raw sensor log lines (the passive sensor's NDJSON
@@ -399,6 +436,7 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	before := s.settings.snapshot()
 	wasDemoFeed := s.demoFeedOn()
+	wasAIOperator := s.aiOperatorOn()
 	if err := s.settings.update(p); err != nil {
 		http.Error(w, "persistence failed", 503)
 		return
@@ -446,6 +484,10 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 	for _, ch := range changes {
 		s.feed.Append("status", "", who+": "+ch, nil)
 	}
+	// Enabling operator mode takes over the open backlog right away.
+	if p.AIOperator != nil && *p.AIOperator && !wasAIOperator {
+		go s.backfillAIOperator(10)
+	}
 	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 
@@ -467,6 +509,26 @@ func (s *server) analysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"analysis": text})
+}
+
+// operatorRun lets a human dispatch the AI operator onto one case on demand
+// — the same autonomous triage the operator applies to fresh escalations.
+func (s *server) operatorRun(w http.ResponseWriter, r *http.Request) {
+	if s.aiClient() == nil {
+		http.Error(w, "operator AI nie jest skonfigurowany (ustaw dostawcę w Ustawieniach)", 503)
+		return
+	}
+	if !s.aiOperatorOn() {
+		http.Error(w, "tryb operatora AI jest wyłączony — włącz go w Ustawieniach", 409)
+		return
+	}
+	c, ok := s.store.Get(r.PathValue("id"))
+	if !ok {
+		http.Error(w, "not found", 404)
+		return
+	}
+	s.runAIOperator(r.Context(), c)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 // analyzeCase asks the model about one case and records the answer as a note
