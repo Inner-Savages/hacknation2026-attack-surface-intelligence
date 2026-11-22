@@ -506,6 +506,27 @@ host table and the evidence behind every label. `GET /api/assets` serves
 the listing (with `?class=` filter), `GET /api/assets/{ip}` one host's
 full record.
 
+### Host risk scoring (Top 10: what to fix first)
+
+Every module above produces its own signal; the risk view folds them into
+one decision. The pure `internal/riskscore` package aggregates, per host:
+CVE/EPSS hits from case envelopes (KEV-listed weighs extra), the ML
+cascade's highest case score plus open/unresolved case pressure, services
+first seen in the last 48 h, administrative ports (23, 3389, 5900, 5985,
+2375, …), TLS-candidate services without a certificate record, cleartext
+HTTP, banners that do not match their well-known port, open TLS findings
+by severity, external exposure confirmed by the Shodan/Censys diff,
+ground-truth drift under passive silence, and an alert-worthy asset class
+(kamera, drukarka, telefon, iot). Each component is capped so no single
+noisy signal dominates; the total saturates at 100 and maps to grades
+krytyczne / wysokie / średnie / niskie.
+
+The score is a pure function of data the console already holds — computed
+live, never stored — so every point stays auditable: expanding a host
+shows the full factor breakdown with per-factor points and plain-language
+justifications. The **Ryzyko** tab renders the Top 10 (or Top 25/50)
+ranking instead of a flat case list; `GET /api/risk?limit=` serves it.
+
 On first run the engine seeds a starter list so it is useful out of the
 box. It ports the heuristics the edge bakes into its feature extractor
 (`internal/edge/aiml/model.go` — the `risky_port` and `management_port`

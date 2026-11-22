@@ -26,6 +26,8 @@ async function rbacInit() {
   if (tl) tl.hidden = !can('tls:read');
   const as = document.querySelector('[data-nav="zasoby"]');
   if (as) as.hidden = !can('assets:read');
+  const rk = document.querySelector('[data-nav="ryzyko"]');
+  if (rk) rk.hidden = !can('risk:read');
   const st = document.querySelector('[data-nav="ustawienia"]');
   if (st) st.hidden = !can('config:read');
   const nm = document.getElementById('userName');

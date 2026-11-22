@@ -164,6 +164,7 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/tls/run", s.needAdmin(http.HandlerFunc(s.tlsRun)))
 	mux.Handle("GET /api/assets", s.needAuth(http.HandlerFunc(s.assets)))
 	mux.Handle("GET /api/assets/{ip}", s.needAuth(http.HandlerFunc(s.assetDetail)))
+	mux.Handle("GET /api/risk", s.needAuth(http.HandlerFunc(s.risk)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
