@@ -35,6 +35,9 @@ const (
 	PermTargetsRead    = "targets:read"    // inventory, targets, overrides: read
 	PermTargetsWrite   = "targets:write"   // add/delete targets, import files and scans
 	PermOverridesWrite = "overrides:write" // edit/restore user overrides
+
+	PermTLSRead = "tls:read" // TLS certificate inventory and findings
+	PermTLSRun  = "tls:run"  // trigger an on-demand TLS policy pass
 )
 
 // permCatalog lists every permission with a description for the role editor.
@@ -57,6 +60,8 @@ var permCatalog = []struct{ Perm, Desc string }{
 	{PermTargetsRead, "Odczyt celów, inwentarza i nadpisań"},
 	{PermTargetsWrite, "Dodawanie i usuwanie celów, import list celów i wyników skanów"},
 	{PermOverridesWrite, "Edycja nadpisań użytkownika (tytuł, tagi, notatka, status)"},
+	{PermTLSRead, "Odczyt monitoringu certyfikatów TLS"},
+	{PermTLSRun, "Uruchamianie kontroli TLS na żądanie"},
 }
 
 func validPerm(p string) bool {
@@ -80,9 +85,9 @@ type Role struct {
 const defaultRole = "analyst" // new self-registered accounts keep today's working rights
 
 func builtinRoles() []*Role {
-	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead, PermTargetsRead}
+	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead, PermTargetsRead, PermTLSRead}
 	analyst := append(append([]string{}, read...), PermCasesUpdate, PermOverridesWrite)
-	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun, PermExposureRun, PermTargetsWrite)
+	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun, PermExposureRun, PermTargetsWrite, PermTLSRun)
 	all := make([]string, 0, len(permCatalog))
 	for _, c := range permCatalog {
 		all = append(all, c.Perm)
@@ -284,6 +289,8 @@ var routePerms = map[string]string{
 	"GET /api/map":                   PermCasesRead,
 	"GET /api/exposure":              PermSensorsRead,
 	"POST /api/exposure/run":         PermExposureRun,
+	"GET /api/tls":                   PermTLSRead,
+	"POST /api/tls/run":              PermTLSRun,
 	"GET /api/groundtruth":           PermSensorsRead,
 	"POST /api/groundtruth/run":      PermScanRun,
 	"GET /api/users":                 PermUsersManage,

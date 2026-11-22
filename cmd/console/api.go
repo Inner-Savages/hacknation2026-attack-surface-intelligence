@@ -81,6 +81,7 @@ type server struct {
 	gt       *groundTruth
 	inv      *inventory
 	exposure *exposureCheck
+	tlsMon   *tlsMonitor
 
 	roles *roleStore
 	audit *auditLog
@@ -159,6 +160,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/map", s.needAuth(http.HandlerFunc(s.attackMap)))
 	mux.Handle("GET /api/exposure", s.needAuth(http.HandlerFunc(s.exposureStatus)))
 	mux.Handle("POST /api/exposure/run", s.needAdmin(http.HandlerFunc(s.exposureRun)))
+	mux.Handle("GET /api/tls", s.needAuth(http.HandlerFunc(s.tlsStatus)))
+	mux.Handle("POST /api/tls/run", s.needAdmin(http.HandlerFunc(s.tlsRun)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
@@ -457,6 +460,30 @@ func (s *server) exposureRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 
+// tlsStatus reports the TLS certificate inventory and open findings.
+func (s *server) tlsStatus(w http.ResponseWriter, r *http.Request) {
+	if s.tlsMon == nil {
+		writeJSON(w, 200, map[string]interface{}{"enabled": false, "issues": []interface{}{}})
+		return
+	}
+	writeJSON(w, 200, s.tlsMon.status())
+}
+
+// tlsRun triggers an on-demand policy pass (admin only).
+func (s *server) tlsRun(w http.ResponseWriter, r *http.Request) {
+	if s.tlsMon == nil {
+		http.Error(w, "tls monitor unavailable", 503)
+		return
+	}
+	sess := s.auth.who(r)
+	who := "operator"
+	if sess != nil {
+		who = sess.Name
+	}
+	go s.tlsMon.run("ręcznie: " + who)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
+}
+
 // attackMap serves the attack-surface map: the current per-host state from
 // the passive registry (the graph) plus the topology timeline (how the
 // network drifted). Query params from/to (RFC3339) bound the timeline.
@@ -602,6 +629,8 @@ func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"exposure_key_set": snap.ExposureAPIKey != "" ||
 			os.Getenv("SHODAN_API_KEY") != "" ||
 			(os.Getenv("CENSYS_API_ID") != "" && os.Getenv("CENSYS_API_SECRET") != ""),
+		"tls_enabled":      snap.TLSEnabled == nil || *snap.TLSEnabled,
+		"tls_interval_min": snap.TLSIntervalMin,
 	})
 }
 
@@ -704,6 +733,16 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.ExposureIntervalMin != nil {
 		changes = append(changes, "zmieniono interwał kontroli ekspozycji")
+	}
+	if p.TLSEnabled != nil && (before.TLSEnabled == nil || *before.TLSEnabled != *p.TLSEnabled) {
+		if *p.TLSEnabled {
+			changes = append(changes, "włączono monitoring certyfikatów TLS")
+		} else {
+			changes = append(changes, "wyłączono monitoring certyfikatów TLS — wygasające certyfikaty i słaba kryptografia nie będą zgłaszane")
+		}
+	}
+	if p.TLSIntervalMin != nil {
+		changes = append(changes, "zmieniono interwał kontroli TLS")
 	}
 	if p.AIBaseURL != nil && *p.AIBaseURL != before.AIBaseURL {
 		changes = append(changes, "zmieniono adres API AI")

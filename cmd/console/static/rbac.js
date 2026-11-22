@@ -11,6 +11,7 @@ const RBAC_GUARDS = [
   ['config:write', '[onclick*="saveConfig("],[onclick*="saveAiConfig("],[onclick*="saveGtConfig("],[onclick*="toggleAdmin("],[onclick*="deleteUser("]'],
   ['groundtruth:run', '[onclick*="runGroundTruth("]'],
   ['exposure:run', '[onclick*="runExposure("]'],
+  ['tls:run', '[onclick*="runTLS("]'],
 ];
 
 async function rbacInit() {
@@ -21,6 +22,8 @@ async function rbacInit() {
   document.getElementById('rbacBadge')?.remove();
   const tab = document.getElementById('tabRole');
   if (tab) tab.hidden = !can('roles:manage');
+  const tl = document.querySelector('[data-nav="tls"]');
+  if (tl) tl.hidden = !can('tls:read');
   const st = document.querySelector('[data-nav="ustawienia"]');
   if (st) st.hidden = !can('config:read');
   const nm = document.getElementById('userName');

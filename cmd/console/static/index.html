@@ -226,6 +226,7 @@ tbody tr:hover { background: var(--panel-2); }
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
     <button class="tab" data-nav="mapa" onclick="go('#/mapa')">Mapa</button>
     <button class="tab" data-nav="ekspozycja" onclick="go('#/ekspozycja')">Ekspozycja</button>
+    <button class="tab" data-nav="tls" onclick="go('#/tls')">TLS</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
     <button class="tab" data-nav="cele" onclick="go('#/cele')">Cele i import</button>
@@ -871,6 +872,10 @@ async function viewSettings() {
           <div><b>Wzbogacanie o CVE (NVD + EPSS)</b><div class="desc">Wykryte usługi i wersje są tłumaczone na CPE i odpytywane w NVD; sprawy dostają ranking realnego ryzyka wg EPSS z flagą CISA KEV. Odpytuje zewnętrzne API; wyniki są cache'owane na dysku. Zmienna NVD_API_KEY podnosi limit zapytań.</div></div>
           <button class="toggle ${cfg.cve_lookup!==false?'on':''}" onclick="saveConfig({cve_lookup: ${cfg.cve_lookup===false}})"></button>
         </div>
+        <div class="switch-row">
+          <div><b>Monitoring certyfikatów TLS</b><div class="desc">Skany kontrolne pobierają certyfikaty z portów TLS; silnik zgłasza wygasające certy (progi 30/14/7 dni), self-signed, zmiany wystawcy (CA) i słabą kryptografię. Czysta arytmetyka na danych, które konsola już ma — domyślnie włączone.</div></div>
+          <button class="toggle ${cfg.tls_enabled!==false?'on':''}" onclick="saveConfig({tls_enabled: ${cfg.tls_enabled===false}})"></button>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="btn primary" style="flex:1" onclick="saveGtConfig()">Zapisz politykę</button>
           <button class="btn" style="flex:1" onclick="runGroundTruth()">Uruchom teraz</button>
@@ -1128,6 +1133,7 @@ const MAP_EV = {
   gt_changed:     {label: 'skan: ZMIANA w ciszy',   dot: 'red'},
   gt_unreachable: {label: 'skan: nieosiągalny',     dot: 'gray'},
   exposure_new:   {label: 'ekspozycja zewnętrzna',  dot: 'red'},
+  tls_finding:    {label: 'znalezisko TLS',         dot: 'orange'},
 };
 
 async function viewMap() {
@@ -1385,6 +1391,82 @@ async function runExposure() {
   } catch (e) { alert('Nie udało się uruchomić: ' + e.message); }
 }
 
+// --- TLS certificate monitoring --------------------------------------------
+const TLS_KIND = {
+  tls_expired:    {label: 'WYGASŁ',            cls: 'potwierdzony'},
+  tls_expiring:   {label: 'WYGASA',            cls: 'do_weryfikacji'},
+  tls_self_signed:{label: 'SELF-SIGNED',       cls: 'do_weryfikacji'},
+  tls_ca_change:  {label: 'ZMIANA CA',         cls: 'potwierdzony'},
+  tls_weak:       {label: 'SŁABA KRYPTO',      cls: 'do_weryfikacji'},
+};
+const TLS_SEV_CLS = {crit: 'potwierdzony', high: 'do_weryfikacji', warn: 'nowe', info: 'zamkniety'};
+
+async function viewTLS() {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading-line"><div class="spinner"></div> Ładuję monitoring certyfikatów…</div>';
+  let d;
+  try { d = await api('/api/tls'); }
+  catch (e) { app.innerHTML = `<div class="empty"><h3>Nie udało się pobrać danych TLS</h3><p>${esc(e.message)}</p></div>`; return; }
+
+  const issues = d.issues || [];
+  const bySev = s => issues.filter(i => i.severity === s).length;
+  // Soonest expiry across all issues with a not_after.
+  const expiring = issues.filter(i => i.kind === 'tls_expiring' || i.kind === 'tls_expired');
+
+  if (!issues.length) {
+    app.innerHTML = `
+      <div class="feed-toolbar">
+        <span class="muted">${d.enabled ? `Włączone · co ${esc(d.interval || '—')}` : 'Wyłączone'}</span>
+        <span style="flex:1"></span>
+        <button class="btn" onclick="runTLS()">Uruchom kontrolę teraz</button>
+      </div>
+      <div class="empty"><div class="waves">⚿</div>
+        <h3>Brak otwartych znalezień TLS</h3>
+        <p>Skany kontrolne pobierają certyfikaty z portów TLS; gdy któryś zacznie wygasać (progi 30/14/7 dni), będzie self-signed, zmieni wystawcę albo negocjować słabą kryptografię — pojawi się tutaj i jako sprawa.</p>
+        ${d.last_summary ? `<p class="fineprint">Ostatnia kontrola: ${esc(d.last_summary)}</p>` : ''}</div>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="cards">
+      <div class="card panel"><div class="label">OTWARTE ZNALEZIENIA</div><div class="value">${issues.length}</div><div class="sub">z certyfikatów zebranych skanami kontrolnymi</div></div>
+      <div class="card panel"><div class="label">KRYTYCZNE</div><div class="value" style="color:var(--danger)">${bySev('crit')}</div><div class="sub">wygasłe lub ≤ 7 dni</div></div>
+      <div class="card panel"><div class="label">WYSOKIE</div><div class="value" style="color:var(--warn)">${bySev('high')}</div><div class="sub">≤ 14 dni, zmiana CA</div></div>
+      <div class="card panel"><div class="label">WYGASAJĄCE</div><div class="value">${expiring.length}</div><div class="sub">progi 30 / 14 / 7 dni</div></div>
+    </div>
+    <div class="feed-toolbar">
+      <span class="muted">${d.enabled ? `Włączone · co ${esc(d.interval || '—')}` : 'Wyłączone — tylko kontrole ręczne'}${d.running ? ' · <b>kontrola w toku…</b>' : ''}</span>
+      <span style="flex:1"></span>
+      <button class="btn" onclick="runTLS()">Uruchom kontrolę teraz</button>
+      <button class="btn" onclick="viewTLS()">Odśwież</button>
+    </div>
+    ${d.last_summary ? `<p class="fineprint" style="margin-bottom:12px">Ostatnia kontrola: ${esc(d.last_summary)}</p>` : ''}
+    <div class="panel">
+      <h4 style="padding:14px 14px 0">INWENTARZ ZNALEZIEŃ CERTYFIKATÓW</h4>
+      <table><thead><tr><th>Usługa</th><th>Znalezisko</th><th>Certyfikat</th><th>Ważny do</th><th>Podniesione</th></tr></thead>
+      <tbody>${issues.map(i => {
+        const k = TLS_KIND[i.kind] || {label: i.kind, cls: 'zamkniety'};
+        const days = i.not_after ? Math.ceil((new Date(i.not_after) - Date.now()) / 86400000) : null;
+        const daysCls = days === null ? '' : days < 0 || days <= 7 ? 'style="color:var(--danger);font-weight:700"' : days <= 30 ? 'style="color:var(--warn);font-weight:600"' : '';
+        return `<tr style="cursor:default">
+          <td class="mono">${esc(i.ip)}:${i.port}/${esc(i.proto || 'tcp')}</td>
+          <td><span class="badge ${TLS_SEV_CLS[i.severity] || 'zamkniety'}">${esc(k.label)}${i.threshold ? ' ≤' + i.threshold + 'd' : ''}</span><br><span class="muted" style="font-size:11.5px">${esc(i.message)}</span></td>
+          <td style="font-size:12px">${esc(i.subject || '—')}<br><span class="muted" style="font-size:11px">wystawca: ${esc(i.issuer || '—')}</span></td>
+          <td class="mono" ${daysCls}>${i.not_after ? esc(i.not_after.slice(0, 10)) : '—'}${days !== null ? ` (${days} dni)` : ''}</td>
+          <td class="feed-time">${fmtDateTime(i.first_raised)}</td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>`;
+}
+
+async function runTLS() {
+  try {
+    await post('/api/tls/run', {});
+    alert('Kontrola TLS uruchomiona — wynik pojawi się za chwilę.');
+    setTimeout(viewTLS, 2000);
+  } catch (e) { alert('Nie udało się uruchomić: ' + e.message); }
+}
+
 // --- router ----------------------------------------------------------------
 async function render() {
   if (!session.user) return; // auth screen is up
@@ -1394,12 +1476,14 @@ async function render() {
     : h.startsWith('#/cele') ? t.dataset.nav === 'cele'
     : h.startsWith('#/mapa') ? t.dataset.nav === 'mapa'
     : h.startsWith('#/ekspozycja') ? t.dataset.nav === 'ekspozycja'
+    : h.startsWith('#/tls') ? t.dataset.nav === 'tls'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
     : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
   if (h.startsWith('#/mapa')) return viewMap();
   if (h.startsWith('#/ekspozycja')) return viewExposure();
+  if (h.startsWith('#/tls')) return viewTLS();
   if (h.startsWith('#/sensory')) return viewSensors();
   if (h.startsWith('#/cele')) return viewInventory();
   if (h.startsWith('#/logi')) return viewLogs();
@@ -1411,7 +1495,7 @@ async function render() {
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa') && !location.hash.startsWith('#/ekspozycja') && !location.hash.startsWith('#/role') && !location.hash.startsWith('#/cele')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa') && !location.hash.startsWith('#/ekspozycja') && !location.hash.startsWith('#/role') && !location.hash.startsWith('#/cele') && !location.hash.startsWith('#/tls')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {

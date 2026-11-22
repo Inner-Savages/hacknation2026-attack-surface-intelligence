@@ -20,6 +20,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -63,6 +66,10 @@ type HostRecord struct {
 	// port key -> banner. Later scans diff against it; a scan's findings
 	// become the new baseline, so every drift escalates exactly once.
 	Baseline map[string]string `json:"baseline,omitempty"`
+
+	// TLS is the latest certificate state per port key, captured by control
+	// scans on TLS ports. The TLS monitor diffs and ages these records.
+	TLS map[string]*TLSRecord `json:"tls,omitempty"`
 
 	LastCheck    *time.Time `json:"last_check,omitempty"`
 	CheckVerdict string     `json:"check_verdict,omitempty"`
@@ -282,11 +289,29 @@ const (
 	verdictUnreachable = "nieosiągalny"        // host does not answer at all
 )
 
+// TLSRecord is the certificate state a control scan observed on one
+// host:port. Ground truth watches it over time: approaching expiry,
+// self-signed certs, issuer (CA) changes and weak cryptography all become
+// findings — the cheapest high-quality alert in attack-surface management.
+type TLSRecord struct {
+	Subject    string    `json:"subject"`
+	Issuer     string    `json:"issuer"`
+	DNSNames   []string  `json:"dns_names,omitempty"`
+	NotBefore  time.Time `json:"not_before"`
+	NotAfter   time.Time `json:"not_after"`
+	SelfSigned bool      `json:"self_signed"`
+	SHA256     string    `json:"sha256"`  // certificate fingerprint
+	Version    string    `json:"version"` // negotiated TLS version
+	Cipher     string    `json:"cipher"`  // negotiated cipher suite
+	CheckedAt  time.Time `json:"checked_at"`
+}
+
 // hostProbe is the active result for one host.
 type hostProbe struct {
-	Open    map[string]string // port key "port/proto" -> banner ("" when none read)
-	Changes []string          // human-readable differences vs the baseline
-	First   bool              // no baseline yet: this scan establishes ground truth
+	Open    map[string]string     // port key "port/proto" -> banner ("" when none read)
+	TLS     map[string]*TLSRecord // port key -> certificate state (TLS ports only)
+	Changes []string              // human-readable differences vs the baseline
+	First   bool                  // no baseline yet: this scan establishes ground truth
 }
 
 // dialFunc opens one TCP connection; injectable for tests.
@@ -316,7 +341,7 @@ func probeHost(ctx context.Context, h *HostRecord, dial dialFunc, timeout time.D
 	}
 	sort.Ints(list)
 
-	out := hostProbe{Open: map[string]string{}, First: h.Baseline == nil}
+	out := hostProbe{Open: map[string]string{}, TLS: map[string]*TLSRecord{}, First: h.Baseline == nil}
 	for _, port := range list {
 		if ctx.Err() != nil {
 			break
@@ -327,6 +352,13 @@ func probeHost(ctx context.Context, h *HostRecord, dial dialFunc, timeout time.D
 		}
 		key := h.serviceKey(port, "tcp")
 		out.Open[key] = banner
+		// TLS ports (or HTTP banners): a plain TLS handshake over the same
+		// gentle connect captures the certificate for TLS monitoring.
+		if tlsCandidate(port, banner) {
+			if rec := probeTLS(ctx, h.IP, port, dial, timeout); rec != nil {
+				out.TLS[key] = rec
+			}
+		}
 		if h.Baseline == nil {
 			continue
 		}
@@ -350,6 +382,52 @@ func probeHost(ctx context.Context, h *HostRecord, dial dialFunc, timeout time.D
 		}
 	}
 	return out
+}
+
+// tlsCandidatePorts get a TLS handshake attempt during control scans even
+// without a banner hint; any other port needs an HTTP-looking banner first.
+var tlsCandidatePorts = map[int]bool{
+	443: true, 465: true, 636: true, 853: true, 993: true, 995: true,
+	8443: true, 9443: true, 10443: true,
+}
+
+func tlsCandidate(port int, banner string) bool {
+	if tlsCandidatePorts[port] {
+		return true
+	}
+	return strings.Contains(banner, "HTTP/") || strings.Contains(banner, "https")
+}
+
+// probeTLS performs one TLS handshake and records the peer certificate.
+// InsecureSkipVerify is deliberate: verification is the policy engine's
+// job — the probe must see expired and self-signed certs too, which a
+// verifying handshake would refuse before any cert is visible.
+func probeTLS(ctx context.Context, ip string, port int, dial dialFunc, timeout time.Duration) *TLSRecord {
+	raw, err := dial(ctx, "tcp", net.JoinHostPort(ip, strconv.Itoa(port)))
+	if err != nil {
+		return nil
+	}
+	defer raw.Close()
+	_ = raw.SetDeadline(time.Now().Add(timeout))
+	conn := tls.Client(raw, &tls.Config{InsecureSkipVerify: true, ServerName: ip}) //nolint:gosec // see above
+	if err := conn.HandshakeContext(ctx); err != nil {
+		return nil
+	}
+	cs := conn.ConnectionState()
+	if len(cs.PeerCertificates) == 0 {
+		return nil
+	}
+	cert := cs.PeerCertificates[0]
+	sum := sha256.Sum256(cert.Raw)
+	rec := &TLSRecord{
+		Subject: cert.Subject.String(), Issuer: cert.Issuer.String(),
+		DNSNames: cert.DNSNames, NotBefore: cert.NotBefore, NotAfter: cert.NotAfter,
+		SHA256:  hex.EncodeToString(sum[:]),
+		Version: tls.VersionName(cs.Version), Cipher: tls.CipherSuiteName(cs.CipherSuite),
+		CheckedAt: time.Now(),
+	}
+	rec.SelfSigned = rec.Subject == rec.Issuer && cert.CheckSignatureFrom(cert) == nil
+	return rec
 }
 
 // probePort dials one port and tries to read a banner without sending
@@ -500,6 +578,17 @@ func (g *groundTruth) run(trigger string) {
 			// The current truth becomes the baseline for the next diff:
 			// every drift escalates once and is then the new normal.
 			h.Baseline = probe.Open
+			// Certificate state: fresh records replace the old ones; a port
+			// that stopped answering TLS keeps its last record until it
+			// answers again (or the host goes unreachable).
+			if len(probe.TLS) > 0 {
+				if h.TLS == nil {
+					h.TLS = map[string]*TLSRecord{}
+				}
+				for key, rec := range probe.TLS {
+					h.TLS[key] = rec
+				}
+			}
 		}
 		// Control scan verdicts are topology events too: on the timeline
 		// they are the ground-truth anchors between passive observations.
