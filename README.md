@@ -3,7 +3,7 @@
 [![CI](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Inner-Savages/silence-on-the-wire/badges/coverage.json)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Inner-Savages/silence-on-the-wire)](go.mod)
-[![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20scanner%20%7C%20trigger%20%7C%20traffic-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
+[![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20scanner%20%7C%20trigger%20%7C%20traffic%20%7C%20console-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
 [![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-lightgrey)](Dockerfile)
 [![HackNation 2026](https://img.shields.io/badge/HackNation-2026-red)](https://hacknation.pl)
 
@@ -13,7 +13,12 @@ reconnaissance.
 
 Built during [HackNation 2026](https://hacknation.pl) for the *Attack Surface
 Intelligence* challenge set by the Information Security Center of AGH University of
-Krakow (CBI AGH). Work in progress.
+Krakow (CBI AGH). The sensor, trigger, scanner, exporters and the operator console are on
+`main` and run end to end; what is still missing is listed honestly in
+[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) (requirement by requirement, with the evidence in
+code). Technical documentation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), demo script:
+[`docs/DEMO.md`](docs/DEMO.md), slides: [`docs/slides/`](docs/slides/). Live demo (behind
+Cloudflare Access): <https://silent.zjadlabymciastko.net>.
 
 ## Why
 
@@ -121,6 +126,19 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   components) become informational findings with their evidence, linked to their
   endpoint. A stable `unique_id_from_tool` keeps later runs from creating duplicates:
   they refresh the evidence and leave analysts' decisions, severities and tags alone.
+- **Operator console** (`cmd/console`, `go run ./cmd/console -demo`): the web UI and API on top of
+  everything above. Cases from sensor events and trigger findings (`POST /logs`,
+  `/events`, `/findings`, bearer token `ASI_CENTRAL_TOKEN`), an attack-surface map with a time
+  slider, external exposure (Shodan/Censys, needs keys), TLS certificate monitor, asset
+  inventory with passive device classes, per-host risk ranking, and **Targets and import**: a
+  manual form plus TXT/CSV/JSON import of target lists and of scan results (JSON or the CSV from
+  `scanner export`), with a diff against the previous scan. User edits (title, technology, tags,
+  note, status) are kept separately and survive re-imports. **RBAC**: 22 permissions, built-in
+  roles `admin`, `editor`, `analyst`, `viewer` plus custom roles, audit trail. **Encryption at
+  rest**: AES-256-GCM (`ASIE` header) for the console's accounts, roles, settings, cases,
+  inventory, TLS state and audit log. The console stores and edits data; it does not start scans
+  (use `scanner`, `scanner schedule` or the trigger). Walkthrough: [`docs/DEMO.md`](docs/DEMO.md).
+
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
@@ -244,7 +262,25 @@ tail -f trigger-state/findings.jsonl
 
 Set the same `SOTW_WEBHOOK_TOKEN` for both to require a bearer token. `GET /healthz`
 shows pending and running scans and why events were dropped. Policy flags: `-debounce`,
-`-ignore-net`, `-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`.
+`-ignore-net`, `-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`,
+`-parallel` (default 2). `-findings-url http://console:18081/findings` also ships every finding to the
+operator console (token: `-findings-token` or `$ASI_CENTRAL_TOKEN`).
+
+### Operator console
+
+```bash
+make console
+ASI_ADMIN_LOGIN=admin ASI_ADMIN_PASSWORD=<password> ASI_CENTRAL_TOKEN=<token> \
+  ./bin/console -demo -listen 127.0.0.1:18081 -data-dir var/console
+```
+
+`-demo` seeds a synthetic fleet (137 sensors, 217 cases) so every tab has something to show;
+without it the console starts empty. Sensors, the trigger and the edge gate deliver to
+`POST /logs`, `/findings` and `/events` with `Authorization: Bearer $ASI_CENTRAL_TOKEN` (401
+without it). The first account comes from `ASI_ADMIN_LOGIN`/`ASI_ADMIN_PASSWORD`; add a read-only
+account with `ASI_VIEWER_LOGIN`/`ASI_VIEWER_PASSWORD` and close self-registration with
+`ASI_ALLOW_REGISTRATION=false`. The data key comes from `ASI_DATA_KEY` or `ASI_DATA_KEY_FILE`, or is
+generated in `<data-dir>/data.key` (0600) on first start; losing it makes the data unreadable.
 
 ### Docker images
 
@@ -257,10 +293,12 @@ docker run --rm ghcr.io/inner-savages/silence-on-the-wire/traffic \
   -targets "http://example.internal/ tcp://example.internal:22"
 ```
 
-Images are built by GitHub Actions for `linux/amd64` and `linux/arm64`. All of them run
+Images (`sensor`, `scanner`, `trigger`, `traffic` and `console`) are built by GitHub Actions for
+`linux/amd64` and `linux/arm64`. All of them run
 as an unprivileged user; the sensor needs only `CAP_NET_RAW`, the scanner and the trigger
 none (connect scan). `--user $(id -u):$(id -g)` makes result files belong to you (they are created
-with mode 0600). `make images` builds them locally under the same names.
+with mode 0600). `make images` builds the first four locally under the same names; the `console`
+image (Dockerfile target `console`) comes from CI and is used by `deploy/demo/`.
 
 ### On the CBI AGH lab templates
 
@@ -308,7 +346,10 @@ Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, base
 (signatures), `internal/pipeline` (scan + probe + fingerprint),
 `internal/schedule` (windows, frequency, checkpoints), `internal/diff`, `internal/export` (CSV, DefectDojo),
 `internal/trigger` (policy, service), `internal/result` (shared model), `internal/traffic`,
-`lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`).
+`internal/vuln` (NVD/EPSS/KEV), `internal/sigimport`, `internal/atrest` (AES-GCM), `internal/classify`,
+`internal/tlspolicy`, `internal/exposure`, `internal/riskscore` (used by the console),
+`internal/edge` (edgegate), `lab/` (test environments), `deploy/` (demo, cascade50),
+`Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`, `console`).
 
 ## Blog
 

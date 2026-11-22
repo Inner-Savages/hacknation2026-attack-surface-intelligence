@@ -39,7 +39,7 @@ Konsola działa w trybie demo+live: **flota syntetyczna** (137 sensorów, 217 sp
 | 2 | **Mapa** | przesuń suwak czasu, kliknij host | graf hostów i usług z pasywnego rejestru sensora oraz oś czasu. Bez żywego sensora zakładka mówi „Mapa jest jeszcze pusta”; na demo zasilają ją zdarzenia z lab AGH (flapper pojawia się na przemian jako `service_closed` i `service_back`) |
 | 3 | **Ekspozycja** | otwórz | porównanie widoku od środka z widokiem z internetu (Shodan/Censys). **Bez kluczy API komunikat: „Korelacja z internetem nie jest skonfigurowana”**; klucze ustawia administrator (to jest oczekiwane, nie błąd) |
 | 4 | **TLS** | otwórz | monitor certyfikatów (progi 30/14/7 dni, self-signed, zmiana CA, słabe szyfry). Bez znalezisk: „Brak otwartych znalezień TLS”, pasek „Włączone · co 1h0m0s” |
-| 5 | **Zasoby** | otwórz | inwentarz z klasyfikacją urządzeń z ruchu (drukarka, kamera, IoT, serwer…). Bez zdarzeń: „Inwentarz jest jeszcze pusty”. W labie Dockera klasy to głównie „nieznane” (sensor widzi mało różnych adresów MAC) |
+| 5 | **Zasoby** | otwórz | inwentarz z klasyfikacją urządzeń z ruchu (drukarka, kamera, IoT, serwer…). Bez zdarzeń: „Inwentarz jest jeszcze pusty”. W labie Dockera sam adres MAC nic nie mówi (`02:42:…` = kontener), więc konkretne klasy (`baza`, `broker`, `git`, `web`…) pojawiają się po zaimportowaniu skanu tych hostów (od #28 klasyfikator używa portów, produktów i tytułów HTTP z importu; wg kodu, na żywo nie sprawdzano) |
 | 6 | **Ryzyko** | kliknij Top 10 / Top 25 / Top 50 | liczniki Krytyczne / Wysokie / Średnie i tabela hostów z wynikiem 0–100 oraz „głównymi czynnikami” (np. „najwyższa ocena kaskady modeli 0.98”). Lokalnie na start: 219 hostów w scoringu, najwyższy wynik 24,5 (średnie), 0 krytycznych |
 | 7 | **Logi live** | otwórz, „Wstrzymaj” | strumień zdarzeń `SENSOR` i `ALERT`; zdarzenia triggera z etykietą `WERYFIKACJA`. Pasek „AI: wyłączone” (bramka/analiza AI nie działa na demo) |
 | 8 | **Sensory** | otwórz | lista sensorów z oznaczeniem offline (lokalnie 104/114 online w pierwszej sekundzie) |
@@ -189,7 +189,7 @@ curl -s -X POST 127.0.0.1:18081/logs -H "Authorization: Bearer <token>" -H 'X-Se
 ```
 
 Oczekiwane: `202`; `GET /api/map` (po zalogowaniu) zwraca hosty z lab AGH, a w zakładce Mapa pojawia się graf. Zmierzone: z 300 zdarzeń
-4 hosty i 165 zdarzeń na osi czasu. Zasoby z takiej sieci mostowej są klasy „nieznane”.
+4 hosty i 165 zdarzeń na osi czasu. Zasoby z takiej sieci mostowej bez zaimportowanego skanu są klasy „nieznane” albo `kontener`/`brama`.
 
 ### Krok 7. Import i edycja przez API (to samo, co robi formularz)
 
