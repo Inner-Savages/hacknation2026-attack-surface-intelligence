@@ -68,7 +68,7 @@ mówi do triggera bezpośrednio. Wszystko działa w kontenerach bez uprawnień p
 4. Logi sensora i triggera: `service_changed`, `service_closed`, `service_back`, finding z werdyktem.
 5. Eksport do DefectDojo (`-dry-run`) i konsola.
 
-Pełny scenariusz: `documentation/DEMO.md`.
+Pełny scenariusz: `docs/DEMO.md`.
 
 *Notatka mówcy:* Skan siedmiu portów trwał 48 s (zmierzone), głównie przez `-sV`. Pokaż diff przed i po uruchomieniu
 dodatkowego kontenera, potem na żywo logi sensora. Jeśli sieć zawiedzie: nagrane wyjścia są w DEMO.md.
