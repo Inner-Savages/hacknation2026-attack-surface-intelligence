@@ -35,7 +35,7 @@ func tcpFrame(t *testing.T, src, dst string, sport, dport uint16, flags func(*la
 
 func decodeOne(t *testing.T, frame []byte) []Observation {
 	t.Helper()
-	return NewDecoder(labNet).Decode(frame, t0)
+	return NewDecoder(Scope{Watch: labNet}).Decode(frame, t0)
 }
 
 func serviceObs(obs []Observation) *Observation {

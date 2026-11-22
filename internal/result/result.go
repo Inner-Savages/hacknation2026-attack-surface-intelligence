@@ -43,6 +43,32 @@ type Host struct {
 	State     string    `json:"state"` // up, down
 	Reason    string    `json:"reason,omitempty"`
 	Services  []Service `json:"services,omitempty"`
+	// ExtraPorts are ports nmap summarized instead of listing ("Not shown:
+	// 100 closed tcp ports"). Closed ones prove the host answers even with
+	// nothing open; all-filtered usually means nobody is there.
+	ExtraPorts []ExtraPorts `json:"extra_ports,omitempty"`
+}
+
+// ExtraPorts is a group of unlisted ports in one state.
+type ExtraPorts struct {
+	State string `json:"state"`
+	Count int    `json:"count"`
+}
+
+// Responded reports whether the host answered on any port (open, or
+// closed with a reset), as opposed to every probe timing out.
+func (h *Host) Responded() bool {
+	for _, s := range h.Services {
+		if s.State == "open" || s.State == "closed" {
+			return true
+		}
+	}
+	for _, e := range h.ExtraPorts {
+		if e.State == "closed" && e.Count > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Service is one port on a host.
