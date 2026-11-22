@@ -80,6 +80,9 @@ type server struct {
 	rules    *ruleStore
 	gt       *groundTruth
 	exposure *exposureCheck
+
+	roles *roleStore
+	audit *auditLog
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -153,7 +156,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /events", s.intake)
 	mux.HandleFunc("POST /logs", s.intakeLogs)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	return mux
+	s.registerRBACRoutes(mux)
+	return s.rbac(mux)
 }
 
 // needAuth requires a logged-in operator. Before the first account exists it
@@ -174,10 +178,7 @@ func (s *server) needAuth(h http.Handler) http.Handler {
 
 func (s *server) needAdmin(h http.Handler) http.Handler {
 	return s.needAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if sess := s.auth.who(r); sess == nil || !sess.Admin {
-			http.Error(w, "admin required", 403)
-			return
-		}
+		// Permission checks live in the RBAC wrapper (rbac.go).
 		h.ServeHTTP(w, r)
 	}))
 }
