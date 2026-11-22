@@ -57,6 +57,8 @@ func main() {
 		doFP        = flag.Bool("fingerprint", true, "recognize technologies with signatures")
 		fpPaths     = flag.Bool("fingerprint-paths", true, "let signatures GET fixed paths such as /wp-login.php")
 		sigFiles    = flag.String("signatures", "", "extra signature YAML files (comma separated)")
+		doCVE       = flag.Bool("cve", false, "look detected versions up in NVD and rank CVEs by EPSS (needs network; cached in -cve-cache)")
+		cveCache    = flag.String("cve-cache", "var/cve-cache", "directory for the NVD/EPSS/KEV lookup cache")
 	)
 	flag.Parse()
 
@@ -137,6 +139,11 @@ func main() {
 	}
 	if err != nil {
 		log.Printf("scan interrupted: %v (writing partial result)", err)
+	}
+	if *doCVE && ctx.Err() == nil {
+		start := time.Now()
+		enrichCVE(ctx, res, *cveCache)
+		log.Printf("CVE enrichment done in %v", time.Since(start).Round(time.Millisecond))
 	}
 
 	var w io.Writer = os.Stdout
