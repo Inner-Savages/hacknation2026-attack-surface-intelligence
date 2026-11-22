@@ -174,3 +174,22 @@ func TestEnvelopeVulns(t *testing.T) {
 		t.Fatalf("envelope without vulns: got %v %v %d", epss, kev, n)
 	}
 }
+
+// RBAC: the risk ranking is read-only; viewer reads it, anonymous gets 401,
+// and write methods are rejected.
+func TestRiskEndpointRBAC(t *testing.T) {
+	s, _, adminTok := testServer(t)
+	h := s.routes()
+	viewer := userWithRole(t, s, "vera", "viewer")
+	for _, tok := range []string{viewer, adminTok} {
+		if w := call(t, h, "GET", "/api/risk", "", tok); w.Code != 200 {
+			t.Errorf("GET /api/risk = %d, want 200", w.Code)
+		}
+	}
+	if w := call(t, h, "GET", "/api/risk", "", ""); w.Code != 401 {
+		t.Errorf("anonymous GET /api/risk = %d, want 401", w.Code)
+	}
+	if w := call(t, h, "POST", "/api/risk", `{}`, viewer); w.Code < 400 {
+		t.Errorf("viewer POST /api/risk = %d, want error", w.Code)
+	}
+}
