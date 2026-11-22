@@ -16,12 +16,10 @@ on:
       - ".github/workflows/images.yml"
       - "deploy/cascade50/**"
       - "models/**"
-      - ".gitattributes"
   pull_request:
     paths:
       - "deploy/cascade50/**"
       - "models/**"
-      - ".gitattributes"
       - "cmd/**"
       - "internal/**"
       - "go.mod"

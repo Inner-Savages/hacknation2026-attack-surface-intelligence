@@ -1,6 +1,9 @@
 # Model artifacts
 
-These are the exact checkpoints used by the cascade, stored in Git LFS:
+These are the exact checkpoints used by the cascade. The weights and large
+tokenizers are not committed: `edgegate fetch-models` downloads them from the
+pinned upstream revisions below and checks every size and SHA256 against
+`manifest.json`. Small configuration files are committed as they are.
 
 | Model | Artifact | Upstream revision |
 |---|---|---|
@@ -15,13 +18,13 @@ calibrated policy. Do not substitute them without recalibration.
 
 All three upstream model cards declare Apache-2.0. Original cards are preserved
 as `README.upstream.md` in each model directory; the license text is included as
-`LICENSE-APACHE-2.0.txt`. The copied weights, tokenizers and configuration files
-are unmodified. The manifest and deployment documentation were added here.
+`LICENSE-APACHE-2.0.txt`. The fetched weights, tokenizers and committed configuration
+files are unmodified. The manifest and deployment documentation were added here.
 
 ```sh
-git lfs pull
-make edgegate
-./bin/edgegate verify-models
+make cascade50-models          # in Docker, ~2.5 GB, skips files that already match
+# or without Docker:
+make edgegate && ./bin/edgegate fetch-models && ./bin/edgegate verify-models
 ```
 
 See [the complete run instructions](../deploy/cascade50/README.md).

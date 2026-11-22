@@ -84,6 +84,27 @@ services:
         read_only: true
         bind: {create_host_path: false}
     command: [gate, -sensor-id, lab, -input, /input/events.jsonl, -follow, -outbox-dir, /data/outbox, -central-url, "http://central:8080/events", -basal-url, "http://basal:8000/v1/systemone", -laya-url, "http://laya:8000/v1/systemone", -kev-url, "http://kev:8000/v1/systemone"]
+  # Downloads the weights listed in models/manifest.json (pinned Hugging Face
+  # revisions, SHA256-checked). run.sh runs it as the invoking user so the
+  # files in models/ belong to them.
+  models:
+    <<: *edge
+    profiles: [tools]
+    volumes:
+      - ../../models:/work/models
+    command: [fetch-models]
+  # The gate between the sensor and the trigger (see README): host network so
+  # it reaches the model ports above and the trigger on 127.0.0.1:8099.
+  serve:
+    <<: *edge
+    profiles: [serve]
+    network_mode: host
+    environment:
+      SOTW_WEBHOOK_TOKEN: ${SOTW_WEBHOOK_TOKEN:-agh-lab-token}
+    volumes:
+      - ../../deploy/cascade50:/work/deploy/cascade50:ro
+      - edge-data:/data
+    command: [serve, -listen, "127.0.0.1:8098", -trigger-url, "http://127.0.0.1:8099/events", -outbox-dir, /data/serve-outbox]
 volumes:
   central-data:
   edge-data:

@@ -5,8 +5,13 @@ dc() { docker compose -f deploy/cascade50/compose.yaml "$@"; }
 mkdir -p var/cascade50
 touch var/cascade50/events.jsonl
 case "${1:-}" in
+  models)
+    dc build central
+    dc run --rm --no-deps -T --user "$(id -u):$(id -g)" models
+    ;;
   up)
     dc build central
+    dc run --rm --no-deps -T --user "$(id -u):$(id -g)" models
     dc run --rm --no-deps -T gate verify-models
     dc up -d --build basal laya kev central
     attempt=0
@@ -39,8 +44,12 @@ case "${1:-}" in
   gate)
     dc run --rm --no-deps -T gate
     ;;
+  serve)
+    dc --profile serve up -d --build serve
+    echo 'gate listening on 127.0.0.1:8098; point the sensor webhook there (it forwards to the trigger on 8099)'
+    ;;
   replay)
     dc run --rm --no-deps -T gate replay -outbox-dir /data/outbox -central-url http://central:8080/events
     ;;
-  *) echo "usage: $0 {up|smoke|gate|replay}" >&2; exit 2 ;;
+  *) echo "usage: $0 {models|up|smoke|serve|gate|replay}" >&2; exit 2 ;;
 esac

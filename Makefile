@@ -15,15 +15,21 @@ build:
 	CGO_ENABLED=0 go build -o bin/traffic ./cmd/traffic
 	CGO_ENABLED=0 go build -o bin/edgegate ./cmd/edgegate
 
-.PHONY: edgegate cascade50-up cascade50-down cascade50-smoke
+.PHONY: edgegate cascade50-models cascade50-up cascade50-down cascade50-smoke cascade50-serve
 edgegate:
 	CGO_ENABLED=0 go build -o bin/edgegate ./cmd/edgegate
+
+cascade50-models:
+	./deploy/cascade50/run.sh models
 
 cascade50-up:
 	./deploy/cascade50/run.sh up
 
 cascade50-smoke:
 	./deploy/cascade50/run.sh smoke
+
+cascade50-serve:
+	./deploy/cascade50/run.sh serve
 
 cascade50-down:
 	docker compose -f deploy/cascade50/compose.yaml down

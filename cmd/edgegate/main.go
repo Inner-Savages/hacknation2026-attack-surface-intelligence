@@ -19,7 +19,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: edgegate {serve|gate|check-models|verify-models|replay|receive} [flags]")
+		return fmt.Errorf("usage: edgegate {serve|gate|check-models|fetch-models|verify-models|replay|receive} [flags]")
 	}
 	switch args[0] {
 	case "serve":
@@ -83,6 +83,13 @@ func run(args []string) error {
 			log.Printf("%s ready: model=%s latency=%.1fms", name, score.ReportedModel, score.LatencyMS)
 		}
 		return nil
+	case "fetch-models":
+		fs := flag.NewFlagSet("fetch-models", flag.ContinueOnError)
+		manifest := fs.String("manifest", "models/manifest.json", "artifact manifest; paths relative to its directory")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		return fetchModels(*manifest, "huggingface.co", modelClient())
 	case "verify-models":
 		fs := flag.NewFlagSet("verify-models", flag.ContinueOnError)
 		manifest := fs.String("manifest", "models/manifest.json", "artifact manifest; paths relative to its directory")

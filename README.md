@@ -31,11 +31,14 @@ network traffic ──► [ passive sensor ] ── change events ──► [ ac
 
 ## What works today
 
-- **AI edge gate** (`cmd/edgegate`): a separate Go process consumes sensor JSONL,
-  runs a calibrated Tree+GNB → Basal+Laya+Kev cascade, and durably queues escalations.
-  Real model weights are included through Git LFS. The 50% target is calibrated on
-  synthetic data and is not a hard quota. Missing model answers force escalation.
-  See [complete setup, smoke test and sensor integration](deploy/cascade50/README.md).
+- **AI edge gate** (`cmd/edgegate`, optional): a calibrated Tree+GNB →
+  Basal+Laya+Kev cascade that can sit between the sensor and the trigger
+  (`edgegate serve`): it scores events, forwards the interesting ones with a
+  `score`, and always passes events about services that went silent or closed.
+  Without it the sensor talks to the trigger directly. Weights (~2.5 GB) are
+  downloaded and SHA256-verified from pinned upstream revisions, not committed.
+  The 50% target is calibrated on synthetic data and is not a hard quota.
+  See [setup, smoke test and sensor integration](deploy/cascade50/README.md).
 
 - **Sensor** (`cmd/sensor`): captures with libpcap on one or more interfaces (or replays
   a pcap) with a kernel BPF filter that keeps only ARP, SYN/RST and HTTP response heads.

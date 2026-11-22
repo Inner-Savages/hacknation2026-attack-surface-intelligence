@@ -20,25 +20,22 @@ consume this inbox or implement the same HTTP acknowledgement contract.
 
 ## Start from a clean checkout
 
-Install Docker with Compose v2 and Git LFS. Reserve about 12 GB of Docker memory
+Install Docker with Compose v2. Reserve about 12 GB of Docker memory
 and 15 GB of free disk for the weights, images, and build cache. CPU inference is
 the default; the smoke run was tested on Linux ARM64 via Docker Desktop.
 
 ```sh
-git lfs install
 git clone https://github.com/Inner-Savages/silence-on-the-wire.git
 cd silence-on-the-wire
-# Until merged, check out the PR branch before pulling its weights:
-git switch codex/cascade50-edge-gate
-git lfs pull
 make cascade50-up
 make cascade50-smoke
 ```
 
-The weights are actual Git LFS objects attached to this branch, about 2.49 GB in
-total. Downloading a source ZIP without LFS objects is insufficient. `up` builds
-the Go container and verifies every artifact's size and SHA256 before starting
-the model servers; a missing file or LFS pointer produces an actionable error.
+The weights (about 2.5 GB) are not in the repository. `up` first runs
+`fetch-models`, which downloads every artifact listed in `models/manifest.json`
+from its pinned Hugging Face revision, checks its size and SHA256, and skips
+files that already match; then it verifies everything again before starting the
+model servers. `make cascade50-models` does only the download.
 The first build needs internet access for base images and pinned packages. Model
 loading uses local read-only files with Hugging Face offline mode enabled.
 
@@ -58,6 +55,36 @@ make cascade50-down
 Stopping the stack preserves both named volumes, including pending escalations
 and accepted envelopes. Do not remove the volumes until their contents have been
 processed or archived.
+
+## Between the sensor and the trigger (optional stage)
+
+`edgegate serve` puts the cascade in the event path of the main project without
+changing either side:
+
+```text
+sensor --webhook--> edgegate serve :8098 --POST /events--> trigger :8099 --> scan
+sensor --webhook----------------------------------------> trigger :8099      (no AI, default)
+```
+
+Both hops use the sensor's event format (`POST /events` with a JSON array, bearer
+token from `$SOTW_WEBHOOK_TOKEN`), so switching is configuration only: point the
+sensor's `-webhook` at `http://127.0.0.1:8098/events` to use the gate, or at the
+trigger to skip it.
+
+- Events are scored in arrival order (the feature extractor keeps per-host state).
+- Escalations are forwarded as the original event plus `score`, `reason` and
+  `event_id`; they pass through the durable outbox and are deleted only after the
+  trigger answers 2xx, so a trigger restart loses nothing.
+- `host_silent`, `service_silent` and `service_closed` are always forwarded
+  (`reason: verification_passthrough`): a model must not hide a service that
+  disappeared.
+- A full queue answers 503 for the whole batch; the sensor retries it.
+
+```sh
+make cascade50-up      # models + Basal, Laya, Kev
+make cascade50-serve   # gate on 127.0.0.1:8098 -> trigger on 127.0.0.1:8099
+sensor -i 'br-*' -webhook http://127.0.0.1:8098/events
+```
 
 ## Run the decisions inbox on an external host
 
