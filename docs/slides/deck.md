@@ -20,6 +20,8 @@ style: |
   th { background:var(--ink); color:#fff; padding:.35em .5em; text-align:left; }
   td { padding:.32em .5em; border-bottom:1px solid #dfe6e4; }
   td:last-child, th:last-child { background:#e8f6f0; }
+  .shots { display:flex; gap:18px; margin:.6em 0 .2em; align-items:flex-start; } .shots figure { flex:1; margin:0; } .shots img { width:100%; border:1px solid #cfd8d5; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+  .shots figcaption { font-size:16px; color:var(--mut); text-align:center; margin-top:4px; }
   .lead { color:var(--mut); font-size:30px; }
   .small { font-size:20px; color:var(--mut); }
   .warn { color:var(--warn); }
@@ -124,17 +126,21 @@ na tej samej maszynie, aktualizacja obrazów co 5 minut.
 
 ## Demo na żywo
 
-1. `silent.zjadlabymciastko.net` → PIN z Cloudflare Access → konto `jury` (tylko odczyt)
-2. **Alerty** → **Mapa** (suwak czasu, flapper przełącza `service_closed` ↔ `service_back`)
-3. **Ryzyko**, **TLS**, **Zasoby**: ranking 0–100, certyfikaty, klasy urządzeń
-4. Jako `jury` dodanie celu: **403**; jako `admin`: import skanu, diff, edycja, ponowny import, edycja zostaje
-5. Terminal: `scanner diff` → `+ 18787/tcp http nginx 1.31.9`, `export -format defectdojo -dry-run`
+1. `silent.zjadlabymciastko.net`: konto `jury` (odczyt) i `admin` (import skanu, diff, edycja)
+2. **Mapa** z suwakiem czasu i **TLS** (wygasłe i samopodpisane certyfikaty); **Ryzyko**: ranking 0–100
+3. Terminal: `scanner diff` (`+ 18787/tcp http nginx 1.31.9`), `export -format defectdojo -dry-run`
 
-<p class="small">Scenariusz krok po kroku: docs/DEMO.md · skan 7 portów labu: 48 s (zmierzone)</p>
+<div class="shots">
+  <figure><img src="img/mapa.jpg"><figcaption>Mapa: topologia labu i oś czasu zdarzeń</figcaption></figure>
+  <figure><img src="img/tls.jpg"><figcaption>TLS: znaleziska certyfikatów z kontroli skanami</figcaption></figure>
+</div>
+
+<p class="small">Scenariusz: docs/DEMO.md · dane flotowe (137 sensorów) są syntetyczne, Mapa, TLS i Zasoby pochodzą z żywego labu AGH</p>
 
 <!--
-Pokaż rozgraniczenie ról na żywo: ten sam ekran, dwa konta. Uczciwie: flota 137 sensorów, sprawy i ranking to dane syntetyczne
-trybu demo; Mapę i Zasoby napełniają prawdziwe zdarzenia z labu AGH. Jeśli sieć zawiedzie, wyniki z terminala są w DEMO.md.
+Pokaż rozgraniczenie ról na żywo: ten sam ekran, dwa konta. Flota 137 sensorów, sprawy i część rankingu to dane syntetyczne trybu demo;
+Mapę, TLS i Zasoby napełniają prawdziwe zdarzenia i skany labu AGH. Skan 7 portów labu trwał 48 s (zmierzone). Jeśli sieć zawiedzie,
+wyniki z terminala są w DEMO.md.
 -->
 
 ---
