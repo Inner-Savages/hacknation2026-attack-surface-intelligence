@@ -11,7 +11,10 @@
 #     the lab (the trigger refuses to scan anything outside it);
 #   - the sensor ignores the demo bridge (br-demo = console + tunnel);
 #   - the sensor feeds BOTH the trigger and the console (POST /logs through the
-#     loopback relay, same bearer token); the trigger stays on 127.0.0.1.
+#     loopback relay, same bearer token); the trigger stays on 127.0.0.1;
+#   - the trigger ships every finding (targeted scan result) to the console
+#     (POST /findings through the same relay), where it correlates with the
+#     passive case or opens a new one, labelled WERYFIKACJA in the live feed.
 # Needs ASI_CENTRAL_TOKEN in the environment (e.g. `set -a; . deploy/demo/.env`).
 services:
   sensor:
@@ -35,6 +38,10 @@ services:
       - ${LAB_FRONTEND_SUBNET:-172.29.10.0/24},${LAB_BACKEND_SUBNET:-172.29.11.0/24}
       - -listen
       - 127.0.0.1:8099
+      - -findings-url
+      - http://127.0.0.1:18081/findings
+      - -findings-token
+      - ${ASI_CENTRAL_TOKEN:?set ASI_CENTRAL_TOKEN}
     environment:
       SOTW_WEBHOOK_TOKEN: ${ASI_CENTRAL_TOKEN:?set ASI_CENTRAL_TOKEN}
       SOTW_EXCLUDE_NET: ${DEMO_SUBNET:-172.29.0.0/24}

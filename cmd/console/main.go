@@ -70,6 +70,13 @@ func main() {
 		auth: userAuth, settings: cfg, rules: rules,
 		registrationClosed: !envBool("ASI_ALLOW_REGISTRATION", true),
 	}
+	// Active verification loop: the trigger ships findings back to
+	// POST /findings (machine token, like /logs); the "scan" action asks the
+	// trigger for a targeted scan when its URL is configured.
+	srv.triggerURL = os.Getenv("ASI_TRIGGER_URL")
+	if srv.triggerToken = os.Getenv("ASI_TRIGGER_TOKEN"); srv.triggerToken == "" {
+		srv.triggerToken = os.Getenv("SOTW_WEBHOOK_TOKEN")
+	}
 	if err := seedAccounts(userAuth); err != nil {
 		log.Fatalf("seed accounts: %v", err)
 	}
@@ -146,6 +153,7 @@ func main() {
 	mux.Handle("/api/", srv.routes())
 	mux.Handle("/events", srv.routes())
 	mux.Handle("/logs", srv.routes())
+	mux.Handle("/findings", srv.routes())
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	aiInfo := "disabled"

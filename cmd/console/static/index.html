@@ -146,6 +146,7 @@ tbody tr:hover { background: var(--panel-2); }
 .feed-kind.note { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 .feed-kind.action { background: var(--accent-soft); color: var(--accent-text); }
 .feed-kind.ai { background: var(--accent-soft); color: var(--accent-text); border: 1px dashed var(--accent); }
+.feed-kind.verify { background: var(--info-soft); color: var(--info); border: 1px dashed var(--info); }
 .feed-kind.rule { background: var(--info-soft); color: var(--info); border: 1px dashed var(--info); }
 .feed-sensor { color: var(--muted); white-space: nowrap; }
 .feed-text { word-break: break-all; }
@@ -539,7 +540,7 @@ async function viewAlert(id) {
           <div class="history">
             ${(d.history||[]).map(h => `
               <div class="hrow">
-                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='ai'?'green':h.kind==='rule'?'green':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
+                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='ai'?'green':h.kind==='rule'?'green':h.kind==='verify'?'green':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
                 <div><div>${esc(h.text)}</div><div class="hmeta">${fmtDateTime(h.at)} · ${esc(h.actor)}</div></div>
               </div>`).join('')}
           </div>
@@ -663,7 +664,7 @@ async function viewSensors() {
 function gotoSensors(p) { state.sensorPage = p; render(); }
 
 // --- live logs -------------------------------------------------------------
-const KIND_LABEL = {sensor:'SENSOR', alert:'ALERT', status:'STATUS', assign:'PRZYPISANIE', note:'NOTATKA', action:'AKCJA', ai:'AI', rule:'REGUŁA'};
+const KIND_LABEL = {sensor:'SENSOR', alert:'ALERT', status:'STATUS', assign:'PRZYPISANIE', note:'NOTATKA', action:'AKCJA', ai:'AI', rule:'REGUŁA', verify:'WERYFIKACJA'};
 async function pollLogs() {
   const l = state.logs;
   if (l.paused) return;
