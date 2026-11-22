@@ -35,6 +35,14 @@ type serveOptions struct {
 	TriggerURL string
 	Token      string // required from senders and sent to the trigger when set
 	Queue      int
+	// HostTTL bounds the feature extractor's per-host memory: hosts idle
+	// longer than this (stream time) are evicted. <= 0 keeps hosts forever.
+	HostTTL time.Duration
+	// StateFile checkpoints the extractor's host table across restarts;
+	// empty disables persistence. StateSaveInterval controls how often the
+	// checkpoint is written (a final one is always attempted on shutdown).
+	StateFile         string
+	StateSaveInterval time.Duration
 }
 
 var verificationTypes = map[string]bool{"host_silent": true, "service_silent": true, "service_closed": true}
@@ -74,6 +82,7 @@ func serve(o serveOptions) error {
 	defer cancel()
 	go s.work(ctx, os.Stdout)
 	go s.deliverLoop(ctx, time.Second)
+	go s.stateLoop(ctx, o.StateSaveInterval)
 
 	srv := &http.Server{Addr: o.Listen, Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second}
 	go func() {
@@ -86,8 +95,13 @@ func serve(o serveOptions) error {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	log.Printf("gate stopped: events=%d forwarded=%d (verification passthrough %d) rejected-when-full=%d",
-		s.seen.Load(), s.fwd.Load(), s.passed.Load(), s.dropped.Load())
+	// Final checkpoint: a restart should pick the baseline up where we left
+	// it, not relearn the fleet from scratch.
+	if err := s.saveState(); err != nil {
+		log.Printf("final host-state checkpoint: %v", err)
+	}
+	log.Printf("gate stopped: events=%d forwarded=%d (verification passthrough %d) rejected-when-full=%d hosts=%d evicted=%d",
+		s.seen.Load(), s.fwd.Load(), s.passed.Load(), s.dropped.Load(), s.x.Hosts(), s.x.Evicted())
 	return nil
 }
 
@@ -99,7 +113,76 @@ func newGateServer(g *cascadeEngine, o serveOptions) (*gateServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &gateServer{engine: g, opts: o, outbox: q, queue: make(chan []byte, o.Queue), x: aiml.NewExtractor()}, nil
+	x := aiml.NewExtractor()
+	if o.HostTTL > 0 {
+		x = aiml.NewExtractorWithTTL(o.HostTTL)
+	}
+	s := &gateServer{engine: g, opts: o, outbox: q, queue: make(chan []byte, o.Queue), x: x}
+	if o.StateFile != "" {
+		if n, err := s.loadState(); err == nil {
+			if n > 0 {
+				log.Printf("host-state checkpoint restored: %d hosts from %s", n, o.StateFile)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			// A corrupt or stale checkpoint must not stop the gate: start
+			// fresh and let the next save overwrite it.
+			log.Printf("ignoring host-state checkpoint %s: %v", o.StateFile, err)
+		}
+	}
+	return s, nil
+}
+
+// loadState restores the extractor's host table from the checkpoint file.
+func (s *gateServer) loadState() (int, error) {
+	f, err := os.Open(s.opts.StateFile)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	return s.x.LoadCheckpoint(f)
+}
+
+// saveState writes the host table atomically (tmp + rename), so a crash
+// mid-save never leaves a torn checkpoint behind.
+func (s *gateServer) saveState() error {
+	if s.opts.StateFile == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(s.opts.StateFile), 0o755); err != nil {
+		return err
+	}
+	tmp := s.opts.StateFile + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if err := s.x.SaveCheckpoint(f); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.opts.StateFile)
+}
+
+// stateLoop persists the host table periodically until shutdown.
+func (s *gateServer) stateLoop(ctx context.Context, every time.Duration) {
+	if s.opts.StateFile == "" || every <= 0 {
+		return
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := s.saveState(); err != nil {
+				log.Printf("host-state checkpoint: %v", err)
+			}
+		}
+	}
 }
 
 func (s *gateServer) handler() http.Handler {
@@ -109,6 +192,7 @@ func (s *gateServer) handler() http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]int64{
 			"queued": int64(len(s.queue)), "events": s.seen.Load(), "forwarded": s.fwd.Load(),
 			"verification_passthrough": s.passed.Load(), "rejected_when_full": s.dropped.Load(),
+			"hosts_tracked": int64(s.x.Hosts()), "hosts_evicted": s.x.Evicted(),
 		})
 	})
 	mux.HandleFunc("POST /events", func(w http.ResponseWriter, r *http.Request) {
