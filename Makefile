@@ -39,7 +39,11 @@ cascade50-serve:
 	./deploy/cascade50/run.sh serve
 
 cascade50-down:
-	docker compose -f deploy/cascade50/compose.yaml down
+	docker compose -f deploy/cascade50/compose.yaml --profile tools down
+
+# Jeden system: modele + bramka + konsola operatora z prawdziwym przepływem.
+cascade50-demo:
+	./deploy/cascade50/run.sh demo
 
 test:
 	go vet ./...

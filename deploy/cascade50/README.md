@@ -2,8 +2,9 @@
 
 This package adds a Go edge gate alongside the existing sensor. It includes the
 calibrated Decision Tree and Gaussian Naive Bayes, the three real neural model
-checkpoints, tokenizers, runtime dependency locks, Docker builds, and a durable
-integration inbox. The sensor and scanner remain independent programs.
+checkpoints, tokenizers, runtime dependency locks, Docker builds, the operator
+web console, and a durable integration inbox. The sensor and scanner remain
+independent programs.
 
 ```text
 sensor -> append-only JSONL -> Go Tree + GNB rank mean
@@ -11,12 +12,16 @@ sensor -> append-only JSONL -> Go Tree + GNB rank mean
                                    | otherwise
                               Basal + Laya + Kev over HTTP
                                    | rank maximum
-                              durable outbox -> central HTTP endpoint
+                              durable outbox -> operator console
+                              (fleet view, case workflow, actions)
 ```
 
-The included `receive` command stores escalations for inspection. **It is an
-integration inbox, not a central analytical AI model.** An analytical service can
-consume this inbox or implement the same HTTP acknowledgement contract.
+The default pipeline delivers escalations to the **operator console**
+(`cmd/console`), where a human verifies cases from the whole sensor fleet. The
+included `receive` command remains available as a minimal integration inbox for
+external analytics endpoints — it is not a central analytical AI model. Any
+service implementing the same HTTP acknowledgement contract can take the
+console's place.
 
 ## Start from a clean checkout
 
@@ -39,22 +44,29 @@ model servers. `make cascade50-models` does only the download.
 The first build needs internet access for base images and pinned packages. Model
 loading uses local read-only files with Hugging Face offline mode enabled.
 
-`up` starts Basal, Laya, Kev and the integration inbox, then tests actual
-`/v1/systemone` responses and calibrated model identities. `smoke` runs ten
-synthetic events through real inference and checks that every escalation was
-acknowledged. Decisions are saved to `var/cascade50/smoke-decisions.jsonl`.
+`up` starts Basal, Laya, Kev and the operator console, then tests actual
+`/v1/systemone` responses and calibrated model identities, and waits for the
+console's health endpoint. `smoke` runs ten synthetic events through real
+inference and checks that every escalation was durably acknowledged by the
+console. Decisions are saved to `var/cascade50/smoke-decisions.jsonl`.
 Model APIs are published only on loopback: Basal 18000, Laya 18001, Kev 18008;
-the inbox is at `http://127.0.0.1:18080/events`.
+the console is at `http://127.0.0.1:18081` (intake `POST /events`).
+
+For the full system in one command — models, the gate following the sensor
+output, and escalations landing in the console — run:
+
+```sh
+make cascade50-demo   # then watch http://127.0.0.1:18081
+```
 
 ```sh
 docker compose -f deploy/cascade50/compose.yaml logs --tail=100
-docker compose -f deploy/cascade50/compose.yaml exec central sh -c 'ls /data/inbox'
 make cascade50-down
 ```
 
-Stopping the stack preserves both named volumes, including pending escalations
-and accepted envelopes. Do not remove the volumes until their contents have been
-processed or archived.
+Stopping the stack preserves all named volumes, including pending escalations,
+accepted envelopes and console cases. Do not remove the volumes until their
+contents have been processed or archived.
 
 ## Between the sensor and the trigger (optional stage)
 

@@ -50,6 +50,7 @@ func main() {
 	}
 	srv := &server{store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demo: *demo}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.Handle("/api/", srv.routes())
 	mux.Handle("/events", srv.routes())
 	mux.Handle("/", http.FileServer(http.FS(sub)))
