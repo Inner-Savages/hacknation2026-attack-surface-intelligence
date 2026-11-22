@@ -36,6 +36,10 @@ type settings struct {
 	GTIntervalMin int   `json:"gt_interval_min,omitempty"` // default 360 (6 h)
 	GTSilentMin   int   `json:"gt_silent_min,omitempty"`   // default 60: silence that qualifies for a scan
 	GTSampleSize  int   `json:"gt_sample_size,omitempty"`  // default 50 hosts per run
+
+	// CVELookup enriches detected services with CVEs from NVD ranked by
+	// EPSS (KEV flagged). Default on; NVD_API_KEY raises the rate limit.
+	CVELookup *bool `json:"cve_lookup,omitempty"`
 }
 
 func openSettings(dir string) (*settings, error) {
@@ -80,6 +84,7 @@ type configPatch struct {
 	GTIntervalMin *int  `json:"gt_interval_min"`
 	GTSilentMin   *int  `json:"gt_silent_min"`
 	GTSampleSize  *int  `json:"gt_sample_size"`
+	CVELookup     *bool `json:"cve_lookup"`
 }
 
 // update applies the non-nil fields of the patch and persists the result.
@@ -116,6 +121,9 @@ func (s *settings) update(p configPatch) error {
 	if p.GTSampleSize != nil && *p.GTSampleSize >= 0 {
 		s.GTSampleSize = *p.GTSampleSize
 	}
+	if p.CVELookup != nil {
+		s.CVELookup = p.CVELookup
+	}
 	return s.saveLocked()
 }
 
@@ -127,6 +135,7 @@ func (s *settings) snapshot() settings {
 		AIBaseURL: s.AIBaseURL, AIModel: s.AIModel, AIAPIKey: s.AIAPIKey,
 		GTEnabled: s.GTEnabled, GTIntervalMin: s.GTIntervalMin,
 		GTSilentMin: s.GTSilentMin, GTSampleSize: s.GTSampleSize,
+		CVELookup: s.CVELookup,
 	}
 }
 
