@@ -123,6 +123,10 @@ type nmapRun struct {
 		Hostnames []struct {
 			Name string `xml:"name,attr"`
 		} `xml:"hostnames>hostname"`
+		ExtraPorts []struct {
+			State string `xml:"state,attr"`
+			Count int    `xml:"count,attr"`
+		} `xml:"ports>extraports"`
 		Ports []struct {
 			Proto  string `xml:"protocol,attr"`
 			PortID int    `xml:"portid,attr"`
@@ -170,6 +174,9 @@ func ParseXML(data []byte) ([]result.Host, error) {
 				Name: p.Service.Name, Product: p.Service.Product, Version: p.Service.Version,
 				ExtraInfo: p.Service.ExtraInfo, Tunnel: p.Service.Tunnel, CPE: p.Service.CPE,
 			})
+		}
+		for _, e := range h.ExtraPorts {
+			host.ExtraPorts = append(host.ExtraPorts, result.ExtraPorts{State: e.State, Count: e.Count})
 		}
 		hosts = append(hosts, host)
 	}

@@ -176,3 +176,20 @@ func TestPendingCap(t *testing.T) {
 		t.Fatal("events for an already pending target still merge")
 	}
 }
+
+func TestServiceEventsJoinPendingHostScan(t *testing.T) {
+	p := policy()
+	p.Offer(ev(sensor.HostNew, "172.20.0.40", 0), at(0))
+	p.Offer(ev(sensor.ServiceNew, "172.20.0.40", 80), at(1)) // same burst: the host scan covers it
+	jobs := p.Take(at(10), 10)
+	if len(jobs) != 1 || jobs[0].Kind != ScanHost || len(jobs[0].Events) != 2 {
+		t.Fatalf("want one host scan carrying both events: %+v", jobs)
+	}
+	// A host verification does not absorb a new service: that is a change to scan.
+	p2 := policy()
+	p2.Offer(ev(sensor.HostSilent, "172.20.0.41", 0), at(0))
+	p2.Offer(ev(sensor.ServiceNew, "172.20.0.41", 80), at(1))
+	if jobs := p2.Take(at(10), 10); len(jobs) != 2 {
+		t.Fatalf("verify-host + scan-service: %+v", jobs)
+	}
+}

@@ -138,6 +138,15 @@ func (p *Policy) Offer(e sensor.Event, now time.Time) (bool, string) {
 		return p.drop("quiet: address just scanned")
 	}
 
+	// A pending host scan covers every port of that host: let service
+	// events ride along instead of queueing a second scan.
+	if t.Port != 0 {
+		if hj := p.pending[Target{IP: t.IP}]; hj != nil && (hj.Kind == ScanHost || kind == VerifyService) {
+			hj.Events = append(hj.Events, e)
+			p.Counters["accepted"]++
+			return true, ""
+		}
+	}
 	job := p.pending[t]
 	if job == nil {
 		if len(p.pending) >= or(p.MaxPending, 1000) {
