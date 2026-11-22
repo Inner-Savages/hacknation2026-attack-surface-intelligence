@@ -12,6 +12,7 @@ style: |
   section::after { color:var(--mut); font-size:16px; }
   h1 { font-size:54px; color:var(--ink); margin:0 0 .2em; letter-spacing:-.5px; }
   h2 { font-size:38px; color:var(--ink); border-left:10px solid var(--g); padding-left:16px; margin:0 0 .6em; }
+  h3 { font-size:28px; color:var(--ink); margin:.4em 0 .2em; }
   strong { color:var(--g); }
   ul { margin:.2em 0; padding-left:1.1em; } li { margin:.28em 0; }
   code { background:var(--soft); color:var(--ink); padding:.05em .3em; border-radius:5px; font-size:.86em; }
@@ -19,7 +20,6 @@ style: |
   table { font-size:21px; border-collapse:collapse; width:100%; }
   th { background:var(--ink); color:#fff; padding:.35em .5em; text-align:left; }
   td { padding:.32em .5em; border-bottom:1px solid #dfe6e4; }
-  td:last-child, th:last-child { background:#e8f6f0; }
   .lead { color:var(--mut); font-size:30px; }
   .small { font-size:20px; color:var(--mut); }
   .warn { color:var(--warn); }
@@ -45,207 +45,348 @@ style: |
 
 **Attack Surface Intelligence** · HackNation 2026 · zamawiający: CBI AGH
 
-<p class="small" style="color:#b9e4d4">Demo na żywo: silent.zjadlabymciastko.net</p>
+<p class="small" style="color:#b9e4d4">Przegląd platformy: moduły, status, luki, roadmapa · demo: silent.zjadlabymciastko.net</p>
 
 <!--
-Narzędzie do ciągłego discovery dużej sieci. Nazwa pochodzi od książki Michała Zalewskiego o rekonesansie pasywnym.
-Plan: problem, pomysł, architektura, demo, a potem skaner, zmiany w czasie, bezpieczeństwo i role, rynek, podsumowanie.
+Ta prezentacja opisuje CAŁĄ platformę moduł po module: co każdy robi, jak jest połączony,
+co już działa na main, czego brakuje i co planujemy dalej. Szczegóły z dowodami w kodzie: docs/ARCHITECTURE.md i docs/COMPLIANCE.md.
 -->
 
 ---
 
-## Problem
+## Problem i teza
 
-- Duże sieci (**ponad 10 000 adresów**) skanuje się okresowo: między skanami zespół jest ślepy
-- Host może odpowiadać tylko o określonej porze: jednorazowy skan nie daje pełnego obrazu
-- Same otwarte porty to za mało: ważne, **co** tam działa (panel admina, staging, CMS, stary komponent) i **co robić najpierw**
-- Pytania z zadania:
-  - jak raportować zmianę?
-  - jak ocenić pewność wyniku?
-  - kiedy uznać host za nieaktywny?
+<div class="cols">
+<div>
 
-<!--
-Pełny skan całej sieci jest drogi i hałaśliwy, więc nikt nie robi go ciągle. Brakuje narzędzia, które to łączy z DefectDojo.
-Na trzy pytania odpowiadamy konkretnie na slajdach 6 i 7.
--->
+### Problem
+
+- Duże sieci (**10 000+ adresów**) skanuje się okresowo — między skanami zespół jest ślepy
+- Host może odpowiadać tylko o określonej porze
+- Same porty to za mało: liczy się, **co** tam działa i **co naprawić najpierw**
+
+</div>
+<div>
+
+### Teza
+
+**Słuchaj ruchu cały czas, skanuj aktywnie tylko tam, gdzie coś się zmieniło.**
+
+- sensor pasywny = tanio i bezpiecznie, 24/7
+- skan aktywny = celowany, z limitami, na żądanie zdarzenia
+- konsola = jedna powierzchnia decyzyjna dla operatora
+
+</div>
+</div>
 
 ---
 
-## Teza: słuchaj ruchu, skanuj tylko tam, gdzie coś się zmieniło
+## Przepływ danych
 
 <div class="flow">
-  <div class="box"><b>Sensor</b>pasywny, libpcap + BPF</div><span class="arrow">➜</span>
+  <div class="box"><b>Sensor</b>libpcap + BPF, baseline</div><span class="arrow">➜</span>
   <div class="box opt"><b>Edgegate</b>opcjonalny scoring AI</div><span class="arrow">➜</span>
-  <div class="box"><b>Trigger</b>debounce, cooldown, limity</div><span class="arrow">➜</span>
-  <div class="box"><b>Skan celowany</b>nmap + HTTP + sygnatury</div><span class="arrow">➜</span>
-  <div class="box"><b>Konsola / eksport</b>diff, ryzyko, CSV, DefectDojo (CLI)</div>
+  <div class="box"><b>Trigger</b>polityka, limity</div><span class="arrow">➜</span>
+  <div class="box"><b>Pipeline</b>nmap + prober + sygnatury + CVE</div><span class="arrow">➜</span>
+  <div class="box"><b>Konsola</b>sprawy, ryzyko, akcje</div>
 </div>
 
-- Sensor widzi ruch ciągle: nowy host, nowa usługa, zmieniony baner, usługa zamilkła
-- Trigger zamienia zdarzenia na **celowane skany**, z limitami; wynik wraca jako sprawa z werdyktem
-- Ten sam pipeline obsługuje klasyczny skan okresowy (`scanner`, `scanner schedule`)
-
-<!--
-Pasywny sensor niczego nie wysyła do sieci, więc jest bezpieczny i tani. Aktywny skan włączamy po sygnale,
-a jego intensywność ogranicza polityka.
--->
+- **3 tryby tego samego potoku**: ręczny (`scanner`), harmonogram (`scanner schedule`), zdarzeniowy (sensor → trigger)
+- Wszystko ląduje w **konsoli operatora**: `POST /logs` (sensor), `/findings` (trigger), `/events` (bramka AI), import plików
+- Osobne binarki połączone webhookami JSON z tokenem — każdy moduł da się wymienić lub wyłączyć
 
 ---
 
-## Architektura
+## Mapa modułów
+
+| Warstwa | Moduły | Rola w jednym zdaniu |
+|---|---|---|
+| **Obserwacja** | sensor, traffic (lab) | widzi ruch i zgłasza zmiany; generator ruchu do testów |
+| **Decyzja edge** | edgegate (basal, laya, kev) | kaskada modeli ML ocenia zdarzenia przed skanem |
+| **Egzekucja** | trigger, scanner, schedule | zamienia zdarzenia w celowane, bezpieczne skany |
+| **Wiedza** | probe, fingerprint, sigimport, vuln, diff, result, export | co tam działa, jakie CVE, co się zmieniło, eksport |
+| **Konsola** | console + 14 pakietów wewn. | sprawy, mapa, ekspozycja, TLS, zasoby, ryzyko, reguły, AI operator, RBAC, audyt, szyfrowanie |
+
+<p class="small">Go 1.26 · Python (modele ML) · ~20 pakietów w <code>internal/</code> · pokrycie testami publikowane jako badge z CI</p>
+
+---
+
+## Moduł: Sensor — oczy platformy
+
+**Co robi:** przechwytuje pakiety (libpcap, filtr BPF w jądrze: ARP, SYN/RST, nagłówki HTTP), buduje trwały **baseline hostów, usług i banerów** i emituje zdarzenia JSON-lines / webhook.
+
+| Zdarzenie | Znaczenie |
+|---|---|
+| `host_new`, `service_new` | coś się pojawiło |
+| `service_changed` | zmienił się odcisk banera HTTP |
+| `service_closed` | RST: host żyje, port zamknięty |
+| `host_silent`, `service_silent` | cisza dłużej niż `-silent-after` (2 min) |
+| `host_back`, `service_back` | powrót po ciszy/zamknięciu |
+
+<p class="small">Tylko <code>CAP_NET_RAW</code> · wykluczenia własnej infrastruktury (<code>-exclude-net</code>, globs interfejsów) · TTL+checkpoint historii hostów (skala 10k IP) · replay z pcap do testów</p>
+
+---
+
+## Moduł: Edgegate — kaskada AI na krawędzi
+
+**Co robi:** opcjonalna bramka między sensorem a triggerem. Kaskada **Tree+GNB → Basal + Laya + Kev** ocenia każde zdarzenie i przekazuje dalej z polem `score`; zdarzenia o ciszy/zamknięciu przechodzą zawsze.
+
+- **Standard wymienności:** modele wystawiają wspólny interfejs HTTP (`/v1/systemone`) — wraz z rozwojem AI przepinamy się na nowsze, mniejsze, tańsze energetycznie modele bez zmian w reszcie systemu
+- Wagi (~2,5 GB) pobierane z przypiętych rewizji i weryfikowane **SHA256** — nie leżą w repo
+- Może działać na **zewnętrznym kontenerze**, gdy endpoint nie udźwignie modeli
+
+<p class="small">Cel 50% odfiltrowania skalibrowany na danych syntetycznych — to nie twarda kwota. W demo online bramka wyłączona.</p>
+
+---
+
+## Moduł: Trigger — bezpiecznik aktywnej strony
+
+**Co robi:** zamienia zdarzenia w **celowane zlecenia skanu** przez ten sam pipeline; wynik jako *finding* z werdyktem i diffem względem poprzedniego skanu celu, wysyłany do konsoli.
 
 <div class="cols">
 <div>
 
-- **sensor**: Go, libpcap, filtr BPF w jądrze, baseline hostów, usług i banerów
-- **trigger**: debounce, cooldown, quiet, limit tempa, allowlista
-- **pipeline**: `nmap -sT -sV` + prober GET + **38 sygnatur** YAML + CVE/EPSS
-- **harmonogram**: okna czasowe, częstotliwość, wznawianie, adaptacyjne paczki
+**Polityka (czysta, testowalna):**
+
+- allowlista **wymagana**, ignorowanie własnych adresów
+- debounce 5 s, quiet 15 s, cooldown 60 s / 5 min
+- limit 10 skanów/min, 1000 zleceń, 2 równolegle
 
 </div>
 <div>
 
-- **konsola**: Alerty, Mapa, Ekspozycja, TLS, Zasoby, Ryzyko, Cele i import, Role
-- **eksport**: CSV, JSON, nmap XML, **DefectDojo**
-- **edgegate**: kaskada modeli (na demo wyłączona)
-- **wdrożenie**: kontenery bez uprawnień, demo za Cloudflare Tunnel + Access
+**Werdykty findingów:**
+
+`scanned` · `still-open` · `gone-confirmed` · `still-up` · `down-confirmed` · `error`
+
+Histereza: po „żyje" ignoruje „zamilkł" przez 30 min — skan sam budzi hosta.
 
 </div>
 </div>
 
-<p class="small">Komponenty to osobne binarki połączone webhookami JSON · sensor tylko z <code>CAP_NET_RAW</code></p>
-
-<!--
-Bramka AI jest opcjonalna. Publiczne demo: jedna VM, konsola za Cloudflare Tunnel i Access, lab AGH z sensorem i triggerem
-na tej samej maszynie, aktualizacja obrazów co 5 minut.
--->
+<p class="small"><code>GET /healthz</code> pokazuje kolejkę i powody odrzuceń · <code>-findings-url</code> wysyła findingi do konsoli z tokenem</p>
 
 ---
 
-## Demo na żywo
-
-1. `silent.zjadlabymciastko.net` → PIN z Cloudflare Access → konto `jury` (tylko odczyt)
-2. **Alerty** → **Mapa** (suwak czasu, flapper przełącza `service_closed` ↔ `service_back`)
-3. **Ryzyko**, **TLS**, **Zasoby**: ranking 0–100, certyfikaty, klasy urządzeń
-4. Jako `jury` dodanie celu: **403**; jako `admin`: import skanu, diff, edycja, ponowny import, edycja zostaje
-5. Terminal: `scanner diff` → `+ 18787/tcp http nginx 1.31.9`, `export -format defectdojo -dry-run`
-
-<p class="small">Scenariusz krok po kroku: docs/DEMO.md · skan 7 portów labu: 48 s (zmierzone)</p>
-
-<!--
-Pokaż rozgraniczenie ról na żywo: ten sam ekran, dwa konta. Uczciwie: flota 137 sensorów, sprawy i ranking to dane syntetyczne
-trybu demo; Mapę i Zasoby napełniają prawdziwe zdarzenia z labu AGH. Jeśli sieć zawiedzie, wyniki z terminala są w DEMO.md.
--->
-
----
-
-## Skaner i fingerprinting
-
-<div class="kpi">
-<div><b>38</b>sygnatur wbudowanych</div>
-<div><b>0,99</b>pewność Gitea</div>
-<div><b>0,95</b>pewność RabbitMQ</div>
-<div><b>/12</b>największy CIDR</div>
-</div>
-
-- IP, CIDR, nazwy; paczki dobierane do zmierzonego tempa (`-chunk-time`), 4 równoległe procesy nmap
-- Prober **tylko GET**: status, tytuł, nagłówki, ciasteczka, certyfikat TLS, przekierowania, favicon (mmh3 jak Shodan)
-- **Pewność** = noisy-OR wag dowodów: `1 − Π(1 − w)`, próg 0,5
-- Obserwacje: panel admina, staging, strona domyślna, instalator, certyfikat samopodpisany; CVE z EPSS i KEV
-
-<!--
-Sygnatury wykrywają obecność, nigdy nie próbują logowania ani eksploatacji. Kilka niezależnych słabych dowodów daje wysoką pewność,
-pojedynczy słaby zostaje niski. Zapytanie CVE idzie do NVD i FIRST, nie do hosta, i tylko gdy znamy wersję produktu.
--->
-
----
-
-## Zmiany w czasie i hosty niestabilne
-
-- **Diff** dwóch skanów: nowe `+`, znikające `-`, zmienione `~`; host spoza celów to „nie skanowany”, nie „zniknął”
-- **Kiedy host nieaktywny?** Trzy stopnie:
-  1. sensor: cisza dłuższa niż `-silent-after` (domyślnie 2 min) → `host_silent`
-  2. trigger weryfikuje aktywnie: `still-up` albo `down-confirmed`
-  3. po „żyje” 30 min ignorowania kolejnych „zamilkł”, cooldown 60 s
-- Host niestabilny (flapper 60 s up / 60 s down): każda zmiana = celowany skan
-- Mapa odtwarza dziennik zmian suwakiem; monitor TLS: wygasanie 30/14/7 dni, zmiana CA
-- Harmonogram: okna `-window`, `-every`, wznawianie po zamknięciu okna
-
-<!--
-Pojedyncza brakująca odpowiedź to nie dowód. Rozdzielamy podejrzenie od potwierdzenia. Uczciwie: w trybie okresowym scanner diff
-oznacza zniknięcie po jednym skanie; reguły „N skanów z rzędu” i analizy „ta sama pora, różne dni” nie mamy.
--->
-
----
-
-## Bezpieczeństwo, RBAC i szyfrowanie
+## Moduł: Skaner i harmonogram
 
 <div class="cols">
 <div>
 
-**Skaner**
-- tylko GET, bez logowania i exploitów, bez NSE
-- allowlista, `-max-rate` 300 pkt/s, 10 skanów/min
-- kontenery bez uprawnień
+### Skaner (`cmd/scanner`)
 
-**Konto**
-- PBKDF2-SHA256 (120 000 iteracji)
-- samorejestracja wyłączona
-- demo za Cloudflare Access (PIN)
+- cele: IP, CIDR do /12, domeny; pliki TXT
+- paczki **adaptacyjne** (`-chunk-time`) po równoległe procesy nmap
+- bezpieczny profil: `-sT` connect, `-sV`, limit 300 pkt/s, **bez NSE i OS detection**
+- `scanner diff`: `+` nowe, `-` znikające, `~` zmienione
 
 </div>
 <div>
 
-**RBAC** (22 uprawnienia)
-- `admin`: administracja
-- `editor`: dodawanie, usuwanie, modyfikacja
-- `analyst`: modyfikacja i odczyt
-- `viewer`: odczyt
-- własne role, audyt zmian
+### Harmonogram (`scanner schedule`)
 
-**Szyfrowanie w spoczynku**
-- **AES-256-GCM**: konta, role, sprawy, inwentarz, TLS, audyt
+- okna czasowe (`-window`), częstotliwość (`-every`), strefa (`-tz`)
+- zamknięcie okna zatrzymuje nmap, kolejne okno **kontynuuje** od checkpointu
+- paczki liczone tak, by zdążyć przed końcem okna
 
 </div>
 </div>
 
-<p class="small warn">Luki: pliki wyjściowe CLI (scan.json, findings.jsonl) nieszyfrowane · harmonogram i uruchamianie skanu poza UI konsoli</p>
-
-<!--
-Pokaż, że jury dostaje 403 na zapisie, mimo że przycisk „Edytuj” jest widoczny (serwer jest źródłem prawdy).
-Szyfrowanie sprawdzone: pliki zaczynają się od nagłówka ASIE. Powiedz wprost o lukach.
--->
+<p class="small">Wynik = jeden dokument JSON z ustawieniami i czasami paczek — skan jest odtwarzalny.</p>
 
 ---
 
-## Rynek i porównanie
+## Moduł: Prober, sygnatury i importer
 
-| | nmap | SecureCodeBox | Wappalyzer / nuclei | **Silence on the Wire** |
-|---|---|---|---|---|
-| Skan aktywny | tak | orkiestracja | nuclei: własne żądania | nmap + GET, bezpieczny |
-| Pasywny sensor i zdarzenia | nie | nie | nie | **tak** |
-| Diff między skanami | ndiff | zależnie od skanera | nie | **tak**, wbudowany |
-| Własne sygnatury bez eksploatacji | NSE | szablony | tak | **tak**, tylko GET + importer |
-| DefectDojo | import XML | tak | nie | **tak**, finding informacyjny |
-| RBAC, szyfrowanie, ranking ryzyka | nie | nie | nie | **tak** |
+**Prober (`internal/probe`):** wyłącznie GET — status, tytuł, nagłówki, ciasteczka, przekierowania w obrębie hosta, **certyfikat TLS**, favicon (hash **mmh3 zgodny z Shodan**).
 
-<p class="small">Kolumny cudzych narzędzi to ogólna ocena z dokumentacji, nie pomiar.</p>
+**Sygnatury (`internal/fingerprint`):** własny format YAML, jeden rodzaj dowodu na matcher, wagi → **noisy-OR confidence**. 38 wbudowanych (CMS, panele, bazy, IoT, staging, admin-panel…).
 
-<!--
-Treść zadania wymienia SecureCodeBox jako podobny projekt, który nie spełnia w pełni wymagań. Nasz wkład to pętla
-pasywny sensor → celowany skan → konsola z rolami. Sprawdź kolumny cudzych narzędzi przed prezentacją.
--->
+**Importer (`cmd/sigimport`):** tłumaczy Wappalyzer i szablony nuclei (w tym hashe favicon) na nasz YAML → **~60 000 sygnatur** bez adopcji ich silników. Generowany plik to dane — przerabia się go z nowych źródeł.
+
+<p class="small">Favicon: admin ukryje Server, wersję i tytuł — stockowej ikonki prawie nikt nie podmienia.</p>
 
 ---
 
-## Podsumowanie
+## Moduł: CVE / EPSS / KEV
 
-**Działa:** discovery i usługi · fingerprinting z pewnością · diff · sensor + trigger · eksport CSV/JSON/nmap/**DefectDojo** · harmonogram (CLI) · CVE/EPSS · konsola z **RBAC** i **szyfrowaniem** · import i edycja · mapa, TLS, zasoby, ranking ryzyka · publiczne demo
+**Co robi:** wykrytą wersję produktu tłumaczy na **CPE**, pyta **NVD** o CVE i szereguje je wg prawdopodobieństwa eksploatacji **EPSS** (FIRST), oznaczając listę **CISA KEV**.
 
-<p class="warn"><b>Luki (uczciwie):</b> harmonogram i skan poza UI · Shodan/Censys bez kluczy · bramka AI wyłączona na demo · brak reguły „N skanów z rzędu” i analizy pory dnia · skala >10 000 adresów niezmierzona · wyniki w plikach, nie w bazie</p>
+- Każda technologia w wyniku: do 5 pozycji `CVE-… — CVSS, EPSS, KEV`
+- Bez wersji **celowo nie pytamy** — odpytanie bez wersji to szum, nie wywiad
+- Fail-soft: brak sieci = brak wzbogacenia; cache na dysku (NVD 7 dni, EPSS/KEV 24 h)
+- `NVD_API_KEY` podnosi anonimowy limit ~10×
 
-**Dalej:** skan z konsoli, baza z szyfrowaniem, pomiar na 10 000+ adresów, wdrożenie w CBI AGH
+<p class="small">Zmienia listę zmian w <strong>ranking realnego ryzyka</strong> — serce attack surface intelligence.</p>
 
-<!--
-Zamknij tym, co faktycznie jest, i tym, co w drodze. Zaproś do rozmowy o wdrożeniu w CBI AGH i współpracy z innymi uczelniami.
--->
+---
+
+## Moduł: Diff i eksport
+
+- **Diff (`internal/diff`):** nowe / znikające / zmienione hosty i usługi; pomija dane zmienne z natury (daty, ETag); host spoza celów nowego skanu to „nie skanowany", nie „zniknął"; ostrzega przy różnicy argumentów nmap
+- **Eksport (`scanner export`):** CSV, JSON, nmap XML i **DefectDojo** — obserwacje (panel admina, staging, self-signed, przeterminowane komponenty) jako findingi informacyjne ze stabilnym `unique_id_from_tool` (kolejne przebiegi odświeżają dowody, nie ruszają decyzji analityka)
+- Selektory: `-select default,category:database,tech:Gitea,tag:login`, `-min-confidence`
+
+---
+
+## Konsola operatora — jedna powierzchnia decyzyjna
+
+| Zakładka | Co daje |
+|---|---|
+| **Alerty** | sprawy z licznikami, statusy, notatki, **akcje** (skan, odcięcie z potwierdzeniem) |
+| **Mapa** | topologia sieci z **suwakiem czasu** — widać dryf powierzchni |
+| **Ekspozycja** | diff „wnętrze vs internet" (Shodan/Censys) — shadow IT |
+| **TLS** | wygasanie 30/14/7 dni, self-signed, zmiana CA, słaba kryptografia |
+| **Zasoby** | żywy CMDB z ruchu: 16 klas urządzeń (kamera, drukarka, IoT…) |
+| **Ryzyko** | ranking hostów 0–100 z jawnym rozbiciem na czynniki |
+| **Logi live / Sensory** | strumień zdarzeń na żywo, flota i jej kondycja |
+| **Cele i import** | formularz + import TXT/CSV/JSON z diffem, nadpisania przeżywają skany |
+| **Reguły / Ustawienia / Role** | tryb deterministyczny, AI operator, RBAC |
+
+---
+
+## Konsola: bezpieczeństwo samej platformy
+
+<div class="cols">
+<div>
+
+### RBAC i audyt
+
+- **22 uprawnienia**, role wbudowane: `admin`, `editor`, `analyst`, `viewer` + role własne
+- PBKDF2 (120k iteracji), sesje 12 h, `HttpOnly`+`SameSite=Lax`
+- samorejestracja do wyłączenia (`ASI_ALLOW_REGISTRATION=false`)
+- każda zmiana sprawy/roli/konta w **dzienniku audytu**
+
+</div>
+<div>
+
+### Szyfrowanie w spoczynku
+
+- **AES-256-GCM**, nagłówek `ASIE\x01`, nazwa pliku jako AAD
+- szyfrowane: konta, role, ustawienia (z kluczami API), sprawy, inwentarz, TLS, ekspozycja, audyt
+- klucz z env/pliku/pierwszego startu (0600); utrata klucza = nieczytelne dane
+
+</div>
+</div>
+
+---
+
+## Konsola: AI operator i tryb reguł
+
+<div class="cols">
+<div>
+
+### AI operator (LLM)
+
+- analiza logów z endpointów przez **dowolne API zgodne z OpenAI** — ChatGPT, ale też model lokalny; klucz w ustawieniach konta (`ASI_AI_API_KEY`)
+- orkiestruje pracą platformy: ocenia ruch, zmienia statusy spraw, **uzbraja** akcje
+- **odcięcie hosta zawsze potwierdza człowiek** — pełny audyt decyzji AI
+
+</div>
+<div>
+
+### Tryb reguł (fallback)
+
+- gdy modele decyzyjne (Bayes, drzewa, basal/kev…) są zbyt wolne: przełącznik na **sztywne reguły** definiowane w dashboardzie
+- reguły startowe w repo; triage deterministyczne bez ML
+
+</div>
+</div>
+
+<p class="small">Tryb demo z syntetyczną flotą ↔ przełącznik na prawdziwe logi z sensorów edge — jeden przycisk.</p>
+
+---
+
+## Moduł: Ground truth — kontrola ślepego scenariusza
+
+**Problem:** host, który nigdy nic nie wysyła (`silent_stealth`), jest pasywnie nierozróżnialny od wyłączonego.
+
+**Rozwiązanie:** co 6 h konsola sonduje próbkę (50) hostów milczących ≥ 60 min łączeniami TCP na znanych portach.
+
+- werdykt **„zweryfikowany cichy"** vs **„ZMIANA w ciszy"** trafia na mapę i do spraw
+- luka obserwowalności jest **mierzona**, nie niewidoczna
+
+<p class="small">Ustawienia w dashboardzie: interwał, próg ciszy, wielkość próbki.</p>
+
+---
+
+## Bezpieczeństwo działania (defensywność)
+
+- Skaner i prober **tylko odczyt**: GET bez logowania, przekierowania w obrębie hosta, limity rozmiaru i czasu
+- Limity tempa wszędzie: `-max-rate`, `-parallel`, cooldowny, quiet window, cap kolejki
+- Allowlista celów wymagana w triggerze; CIDR max /12
+- Kontenery **bez uprawnień** (`cap_drop: ALL`; sensor tylko `CAP_NET_RAW`)
+- Webhooki z tokenem bearer; bez tokena 401
+- Zapytania CVE/EPSS idą do NVD/FIRST — **nigdy** do skanowanych hostów
+
+---
+
+## Wdrożenie i CI
+
+- **5 obrazów** (sensor, scanner, trigger, traffic, console) z CI na ghcr.io, amd64+arm64, tagi `latest`/`sha`/`semver`
+- Testy z pokryciem + badge; budowanie obrazów także na PR
+- **Demo publiczne**: jedna VM, konsola za **Cloudflare Tunnel + Access** (PIN na e-mail), zero publikowanych portów, aktualizacja obrazów co 5 min
+- **Stack cascade50**: konsola + edgegate + modele ML (basal/laya/kev) + central — compose
+- **Lab CBI AGH**: nakładka dodaje sensor, trigger, traffic i hosta „flapper" bez ruszania ich szablonów
+
+---
+
+## Co jeszcze dodać (uczciwie)
+
+| Luka | Status |
+|---|---|
+| Harmonogram i „uruchom skan" tylko w CLI | brak wpięcia w UI konsoli |
+| Eksport wyników z UI | tylko `scanner export` w CLI |
+| Reguła „N kolejnych skanów" dla nieaktywnego | nie zaimplementowana |
+| Analiza „ta sama godzina, różne dni" | brak (dane czasowe są) |
+| Shodan/Censys bez kluczy | widok pusty, klucze opcjonalne |
+| Skala >10 000 adresów | w kodzie, **nie zmierzona** |
+| Wyniki CLI bez szyfrowania i bez bazy SQL | szyfruje tylko konsola |
+| Edytor sygnatur w UI | sygnatury tylko z plików |
+
+---
+
+## Roadmapa
+
+<div class="cols">
+<div>
+
+### Krótki termin
+
+- harmonogram i przycisk skanu w UI konsoli
+- eksport CSV/JSON/DefectDojo z poziomu sprawy
+- pomiar skali 10k+ i strojenie paczek
+- menu nawigacji jako dropdown (PR #31), fix obrazu konsoli cascade50 (PR #33)
+
+### Średni termin
+
+- prawdziwe wykonanie odcięcia hosta (integracja z firewall/SDN, dziś audytowana decyzja)
+- konto usługowe i SSO/OIDC
+- baza SQL dla wyników zamiast plików
+
+</div>
+<div>
+
+### Długi termin
+
+- **federacja sensorów** — setki edge'ów, hierarchiczne agregowanie
+- akcje SOAR: playbooki (odciecie → monitoring → przywrócenie) z audytem
+- nowe klasy modeli edge przez standardowy interfejs — mniejsze, tańsze energetycznie
+- korelacja „pora dnia × dzień tygodnia" dla hostów okresowych
+- edytor sygnatur i marketplace reguł w UI
+
+</div>
+</div>
+
+---
+
+<!-- _class: title -->
+<!-- _paginate: false -->
+
+# Podsumowanie
+
+<p class="lead">Sensor słucha. Trigger decyduje. Skaner sprawdza. Konsola daje operatorowi pełny obraz i audytowane akcje.</p>
+
+**repo:** github.com/Inner-Savages/silence-on-the-wire · **demo:** silent.zjadlabymciastko.net
+
+<p class="small" style="color:#b9e4d4">Dowody: docs/ARCHITECTURE.md · docs/COMPLIANCE.md · docs/DEMO.md</p>
