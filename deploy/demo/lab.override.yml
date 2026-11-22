@@ -139,9 +139,10 @@ services:
 
 networks:
   frontend:
-    ipam:
-      config:
-        - subnet: ${LAB_FRONTEND_SUBNET:-172.29.10.0/24}
+    # Created by the demo project (compose.yaml, network `lab`) so the console is
+    # attached to it permanently: start `docker compose up -d` in deploy/demo first.
+    name: sotw-lab-frontend
+    external: true
   backend:
     ipam:
       config:

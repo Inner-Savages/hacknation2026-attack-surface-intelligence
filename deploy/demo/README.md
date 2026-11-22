@@ -123,6 +123,14 @@ of the lab, so it cannot sit on the isolated compose network. Honest consequence
   set (not wired in the demo compose: the console is on an isolated network
   and the trigger listens on the host's loopback).
 
+The lab's frontend network (`sotw-lab-frontend`, 172.29.10.0/24) is created and
+owned by the demo project, and the console is attached to it permanently: its
+ground-truth and TLS control scans must reach the lab hosts, otherwise they end
+as `gt_unreachable`. Always start the demo project first (the lab file declares
+that network as `external`), and recreate the lab freely afterwards. When
+migrating from an older install, take the old lab down first
+(`docker compose -p demo-lab ... down`) so the subnet is free.
+
 ```bash
 cd /opt/silent-demo && docker compose --profile lab up -d lab-relay
 cd /opt/silent-demo-src && set -a && . deploy/demo/.env && set +a

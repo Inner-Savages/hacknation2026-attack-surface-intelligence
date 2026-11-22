@@ -34,7 +34,9 @@ services:
     secrets: [data_key, admin_password, viewer_password]
     volumes:
       - console-data:/data
-    networks: [demo]
+    # `lab`: the console's ground-truth and TLS control scans must reach the lab
+    # hosts (see lab.override.yml); the network exists even without the lab.
+    networks: [demo, lab]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
@@ -85,6 +87,14 @@ networks:
     ipam:
       config:
         - subnet: ${DEMO_SUBNET:-172.29.0.0/24}
+
+  # The lab's frontend network, owned by this project under a fixed name so the
+  # console stays attached when the lab (project demo-lab) is recreated.
+  lab:
+    name: sotw-lab-frontend
+    ipam:
+      config:
+        - subnet: ${LAB_FRONTEND_SUBNET:-172.29.10.0/24}
 
 secrets:
   data_key:
