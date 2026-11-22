@@ -53,6 +53,11 @@ func openRules(dir string) (*ruleStore, error) {
 	rs := &ruleStore{path: filepath.Join(dir, "rules.json"), rules: []*Rule{}}
 	b, err := os.ReadFile(rs.path)
 	if os.IsNotExist(err) {
+		// First run: seed the starter rules so the engine is useful out of
+		// the box. The list is persisted, so operators can edit or delete it.
+		if err := rs.replace(defaultRules()); err != nil {
+			return nil, err
+		}
 		return rs, nil
 	}
 	if err != nil {
@@ -62,6 +67,59 @@ func openRules(dir string) (*ruleStore, error) {
 		return nil, fmt.Errorf("corrupt rules.json")
 	}
 	return rs, nil
+}
+
+// defaultRules ports the heuristics the edge bakes into its feature
+// extractor (internal/edge/aiml/model.go: the risky_port and
+// management_port classifications) into editable console rules, and adds
+// coverage for the gate's fail-open escalation path. Ordered: the first
+// match wins, so specific verdicts come before generic ones. Destructive
+// isolation is only ever armed — a human confirms.
+func defaultRules() []*Rule {
+	score06, score09 := 0.6, 0.9
+	unresolved := true
+	return []*Rule{
+		{
+			Name: "Fail-open — niekompletny sygnał modeli", Enabled: true,
+			Unresolved: &unresolved,
+			SetStatus:  StatusVerify, Action: "observe",
+			Note: "Eskalacja fail-open: model nie dostarczył pełnego sygnału (powód zaczyna się od fail_open) — wzmocniona obserwacja do czasu weryfikacji człowieka.",
+		},
+		{
+			Name: "C2/backdoor — porty 4444, 1337, 6667", Enabled: true,
+			EventTypes: []string{"service_new", "service_changed"},
+			Ports:      []int{4444, 1337, 6667},
+			SetStatus:  StatusVerify, Action: "isolate",
+			Note: "Port typowy dla C2/backdoora (Metasploit, IRC) — reguła uzbraja odcięcie hosta, potwierdza je człowiek.",
+		},
+		{
+			Name: "Zarządzanie wystawione — Telnet/RDP/VNC/WinRM/Docker", Enabled: true,
+			EventTypes: []string{"service_new", "service_changed"},
+			Ports:      []int{23, 3389, 5900, 5985, 2375},
+			SetStatus:  StatusVerify, Action: "scan",
+			Note: "Usługa zarządcza na porcie wrażliwym (klasyfikacja edge: management_port) — zlecono aktywny skan i weryfikację.",
+		},
+		{
+			Name: "Wysoka ocena modeli ≥ 0.9", Enabled: true,
+			MinScore:  &score09,
+			SetStatus: StatusVerify, Action: "scan",
+			Note: "Bardzo wysoka ocena modeli — priorytetowa weryfikacja z aktywnym skanem hosta.",
+		},
+		{
+			Name: "Porty ryzykowne przy ocenie ≥ 0.6 — FTP/SSH/SMB/proxy", Enabled: true,
+			EventTypes: []string{"service_new", "service_changed"},
+			Ports:      []int{21, 22, 445, 8080, 8443, 8888},
+			MinScore:   &score06,
+			SetStatus:  StatusVerify,
+			Note:       "Port z listy risky_port edge przy podniesionej ocenie — eskalacja do weryfikacji.",
+		},
+		{
+			Name: "Nowy host w sieci", Enabled: true,
+			EventTypes: []string{"host_new"},
+			Action:     "observe",
+			Note:       "Nowy host w sieci — wzmocniona obserwacja do czasu ustalenia baseline'u.",
+		},
+	}
 }
 
 func (rs *ruleStore) list() []*Rule {
@@ -136,7 +194,7 @@ func ruleMatches(r *Rule, c *Case) bool {
 	if r.SensorID != "" && r.SensorID != c.SensorID {
 		return false
 	}
-	if len(r.Reasons) > 0 && !contains(r.Reasons, c.Reason) {
+	if len(r.Reasons) > 0 && !reasonMatches(r.Reasons, c.Reason) {
 		return false
 	}
 	if r.MinScore != nil && c.Score < *r.MinScore {
@@ -167,6 +225,19 @@ func ipMatches(pattern, ip string) bool {
 		return ipnet.Contains(net.ParseIP(ip))
 	}
 	return strings.Contains(ip, pattern)
+}
+
+// reasonMatches accepts a rule when any listed fragment appears in the
+// case's escalation reason — gate reasons like
+// "fail_open_missing_or_invalid_signal:kev" carry a parameter, so exact
+// equality would never catch the whole family.
+func reasonMatches(patterns []string, reason string) bool {
+	for _, p := range patterns {
+		if p != "" && strings.Contains(reason, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(list []string, v string) bool {

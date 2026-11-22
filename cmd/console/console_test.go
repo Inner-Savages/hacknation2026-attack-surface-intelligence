@@ -1082,3 +1082,69 @@ func TestRulesAPIAndApplyToOpen(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// First run seeds the starter rules (the edge's risky/management port
+// classification ported into the console) and persists them, so operators
+// start from a useful, editable list instead of an empty engine.
+func TestDefaultRulesSeededOnFirstRun(t *testing.T) {
+	dir := t.TempDir()
+	rs, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded := rs.list()
+	if len(seeded) == 0 {
+		t.Fatal("no starter rules were seeded")
+	}
+	for _, r := range seeded {
+		if r.ID == "" || r.Name == "" {
+			t.Fatalf("seeded rule is incomplete: %+v", r)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "rules.json")); err != nil {
+		t.Fatal("seeded rules were not persisted")
+	}
+	// The seeded list covers the edge's management-port classification.
+	var management *Rule
+	for _, r := range seeded {
+		if r.Name == "Zarządzanie wystawione — Telnet/RDP/VNC/WinRM/Docker" {
+			management = r
+		}
+	}
+	if management == nil || !containsInt(management.Ports, 3389) || !containsInt(management.Ports, 23) {
+		t.Fatalf("management-port rule missing or wrong: %+v", management)
+	}
+	// Seeding happens once: an operator-edited list is never overwritten.
+	if err := rs.replace([]*Rule{{Name: "własna", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.list()) != 1 || reloaded.list()[0].Name != "własna" {
+		t.Fatal("operator's rules were overwritten by re-seeding")
+	}
+}
+
+// Gate reasons carry parameters (fail_open_missing_or_invalid_signal:kev),
+// so rule reasons match by substring, not exact equality.
+func TestReasonSubstringMatching(t *testing.T) {
+	rs := &ruleStore{rules: []*Rule{
+		{ID: "fo", Name: "fail-open", Enabled: true, Reasons: []string{"fail_open"}},
+		{ID: "esc", Name: "eskalacja", Enabled: true, Reasons: []string{"cascade_remote_escalate"}},
+	}}
+	c := ruleCase()
+	c.Reason = "fail_open_missing_or_invalid_signal:kev"
+	if got := rs.match(c); got == nil || got.ID != "fo" {
+		t.Fatalf("parametrized fail-open reason not matched: %+v", got)
+	}
+	c.Reason = "cascade_remote_escalate"
+	if got := rs.match(c); got == nil || got.ID != "esc" {
+		t.Fatalf("exact reason not matched: %+v", got)
+	}
+	c.Reason = "cascade_fast_below_threshold"
+	if got := rs.match(c); got != nil {
+		t.Fatalf("unrelated reason matched: %+v", got)
+	}
+}

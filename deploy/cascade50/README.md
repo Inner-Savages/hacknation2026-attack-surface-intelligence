@@ -333,6 +333,25 @@ all:
   right after editing the list. Switching it off returns triage to the
   model stack.
 
+On first run the engine seeds a starter list so it is useful out of the
+box. It ports the heuristics the edge bakes into its feature extractor
+(`internal/edge/aiml/model.go` — the `risky_port` and `management_port`
+classifications) and covers the gate's fail-open escalation path:
+
+1. **Fail-open — niekompletny sygnał modeli** (unresolved escalations →
+   status *do weryfikacji* + wzmocniona obserwacja).
+2. **C2/backdoor — porty 4444, 1337, 6667** (uzbraja odcięcie — potwierdza
+   człowiek).
+3. **Zarządzanie wystawione — Telnet/RDP/VNC/WinRM/Docker** (23, 3389,
+   5900, 5985, 2375 → skan + weryfikacja).
+4. **Wysoka ocena modeli ≥ 0.9** (skan + priorytetowa weryfikacja).
+5. **Porty ryzykowne przy ocenie ≥ 0.6 — FTP/SSH/SMB/proxy** (21, 22, 445,
+   8080, 8443, 8888 → weryfikacja).
+6. **Nowy host w sieci** (wzmocniona obserwacja).
+
+The seeded list is persisted like any operator edit and is never
+re-seeded over your changes.
+
 Rule mode and the AI operator are complementary: rules are the guaranteed,
 instant fallback path; the models add judgement when latency allows it.
 
