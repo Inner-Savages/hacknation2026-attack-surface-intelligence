@@ -786,11 +786,12 @@ async function applyRulesNow(btn) {
 async function viewSettings() {
   const app = $('#app');
   app.innerHTML = skeleton();
-  let cfg, ai, users;
+  let cfg, ai, users, gt;
   try {
-    [cfg, ai, users] = await Promise.all([
+    [cfg, ai, users, gt] = await Promise.all([
       api('/api/config'), api('/api/ai/status'),
       api('/api/users').catch(() => ({items: []})),
+      api('/api/groundtruth').catch(() => null),
     ]);
   } catch (e) {
     app.innerHTML = `<div class="panel" style="padding:24px;margin-top:16px"><h4 style="margin-bottom:8px">USTAWIENIA</h4><p class="muted">Ustawienia są dostępne tylko dla administratora konsoli. Poproś administratora o nadanie uprawnień w panelu Operatorzy.</p></div>`;
@@ -812,6 +813,24 @@ async function viewSettings() {
           <button class="toggle ${opOn?'on':''}" id="tglOp" onclick="saveConfig({ai_operator: ${!opOn}})"></button>
         </div>
         <p class="fineprint" style="margin-top:12px">Zmiany działają natychmiast, są zapisywane trwale i trafiają do dziennika live.</p>
+      </div>
+      <div class="panel">
+        <h4>SKANY KONTROLNE (GROUND TRUTH)</h4>
+        <div class="switch-row">
+          <div><b>Okresowe aktywne skany cichych hostów</b><div class="desc">Host, który zamilkł pasywnie, jest nierozróżnialny od wyłączonego (scenariusz silent_stealth). Konsola sonduje próbkę najdłużej cichych hostów delikatnymi połączeniami TCP i porównuje wynik z bazą ground truth — zmiana usługi lub bannera w ciszy staje się sprawą.</div></div>
+          <button class="toggle ${cfg.gt_enabled!==false?'on':''}" onclick="saveConfig({gt_enabled: ${cfg.gt_enabled===false}})"></button>
+        </div>
+        <div class="form-row"><label>INTERWAŁ SKANU (minuty)</label>
+          <input id="gtInterval" type="number" min="5" value="${cfg.gt_interval_min ?? 360}"></div>
+        <div class="form-row"><label>CISZA KWALIFIKUJĄCA DO SKANU (minuty)</label>
+          <input id="gtSilent" type="number" min="1" value="${cfg.gt_silent_min ?? 60}"></div>
+        <div class="form-row"><label>PRÓBKA NA SKAN (hostów, najdłużej cichych)</label>
+          <input id="gtSample" type="number" min="1" value="${cfg.gt_sample_size ?? 50}"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn primary" style="flex:1" onclick="saveGtConfig()">Zapisz politykę</button>
+          <button class="btn" style="flex:1" onclick="runGroundTruth()">Uruchom teraz</button>
+        </div>
+        <p class="fineprint" style="margin-top:10px">${gt ? `Rejestr pasywny: ${gt.registry_hosts ?? 0} hostów · ${gt.running ? 'skan w toku…' : (gt.last_summary ? 'Ostatni ' + esc(gt.last_summary) : 'jeszcze nie skanowano')}` : 'Ground truth niedostępny'}</p>
       </div>
       <div class="panel">
         <h4>DOSTAWCA AI (API KOMPATYBILNE Z OPENAI)</h4>
@@ -852,6 +871,24 @@ async function deleteUser(login) {
     await api(`/api/users/${encodeURIComponent(login)}`, {method: 'DELETE'});
     render();
   } catch (e) { alert('Nie udało się usunąć konta: ' + e.message); }
+}
+async function saveGtConfig() {
+  const patch = {
+    gt_interval_min: parseInt($('#gtInterval').value, 10) || 0,
+    gt_silent_min: parseInt($('#gtSilent').value, 10) || 0,
+    gt_sample_size: parseInt($('#gtSample').value, 10) || 0,
+  };
+  try {
+    await post('/api/config', patch);
+    render();
+  } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
+}
+async function runGroundTruth() {
+  try {
+    await post('/api/groundtruth/run', {});
+    alert('Skan kontrolny uruchomiony — wynik pojawi się w dzienniku live i w sprawach.');
+    render();
+  } catch (e) { alert('Nie udało się uruchomić skanu: ' + e.message); }
 }
 async function saveConfig(patch) {
   try {

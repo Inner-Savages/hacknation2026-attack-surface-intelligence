@@ -333,6 +333,36 @@ all:
   right after editing the list. Switching it off returns triage to the
   model stack.
 
+### Ground truth: periodic control scans of silent hosts
+
+A host that stops speaking is indistinguishable from a host that is off —
+the passive feed alone cannot resolve the `silent_stealth` scenario, so
+without active ground truth that observability gap stays invisible. The
+console therefore keeps a durable **registry of passive observations** per
+host (`hosts.json`: services seen, last event, when the silence began) and
+runs **control scans** of the longest-silent hosts:
+
+- The scan is gentle and bounded: TCP connects to the host's known ports
+  plus a small common set (22, 80, 443, 445, 3306, 3389, 5432, 6379, 8080,
+  8443, 9200), a short banner read, nothing sent. Full-coverage port scans
+  remain the scanner's job; control scans only verify what the passive view
+  cannot.
+- The first scan of a host establishes the **ground-truth baseline** (open
+  ports and banners). Every later scan diffs against it: a new service, a
+  changed banner or a vanished one while the host is passively silent
+  escalates as a `ground_truth_change` case — an ordinary case, so the rule
+  engine and the AI operator triage it like any other alert. A verified
+  quiet host and an unreachable one are recorded as feed notes. Each drift
+  escalates once and then becomes the new baseline.
+- The policy lives in **Ustawienia → Skany kontrolne** (admin): enable/disable,
+  interval (default 6 h), the silence threshold that qualifies a host
+  (default 1 h) and the sample size per run (default 50 longest-silent
+  hosts). **Uruchom teraz** triggers a scan on demand; every run, verdict
+  and policy change is mirrored to the live feed, and the registry persists
+  across restarts. `GET /api/groundtruth` reports the policy, registry size
+  and the last run's summary.
+
+
 On first run the engine seeds a starter list so it is useful out of the
 box. It ports the heuristics the edge bakes into its feature extractor
 (`internal/edge/aiml/model.go` — the `risky_port` and `management_port`

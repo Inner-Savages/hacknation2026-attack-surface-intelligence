@@ -78,6 +78,7 @@ type server struct {
 	auth     *auth
 	settings *settings
 	rules    *ruleStore
+	gt       *groundTruth
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -139,6 +140,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/rules/apply", s.needAdmin(http.HandlerFunc(s.applyRulesHandler)))
 	mux.Handle("GET /api/config", s.needAdmin(http.HandlerFunc(s.getConfig)))
 	mux.Handle("POST /api/config", s.needAdmin(http.HandlerFunc(s.setConfig)))
+	mux.Handle("GET /api/groundtruth", s.needAuth(http.HandlerFunc(s.groundTruthStatus)))
+	mux.Handle("POST /api/groundtruth/run", s.needAdmin(http.HandlerFunc(s.groundTruthRun)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
@@ -390,8 +393,42 @@ func (s *server) intakeLogs(w http.ResponseWriter, r *http.Request) {
 	for i, l := range logs {
 		s.feed.Append("sensor", sensor, l.line(), raws[i])
 	}
+	// The passive record feeds ground truth: every log line updates what
+	// the control scans will later verify.
+	if s.gt != nil {
+		now := time.Now()
+		for _, l := range logs {
+			s.gt.registry.Observe(l, sensor, now)
+		}
+	}
 	s.store.TouchSensor(sensor)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// groundTruthStatus reports the control-scan policy, the registry size and
+// the last run's outcome.
+func (s *server) groundTruthStatus(w http.ResponseWriter, r *http.Request) {
+	if s.gt == nil {
+		writeJSON(w, 200, map[string]interface{}{"enabled": false})
+		return
+	}
+	writeJSON(w, 200, s.gt.status())
+}
+
+// groundTruthRun triggers a control scan on demand (admin); the run itself
+// is audited in the live feed with the operator's name.
+func (s *server) groundTruthRun(w http.ResponseWriter, r *http.Request) {
+	if s.gt == nil {
+		http.Error(w, "ground truth disabled", 409)
+		return
+	}
+	who := "operator"
+	if sess := s.auth.who(r); sess != nil {
+		who = sess.Name
+	}
+	s.feed.Append("status", "", who+": uruchomił(a) ręcznie aktywny skan kontrolny (ground truth)", nil)
+	go s.gt.run("ręcznie · " + who)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 // logs serves the live feed for the dashboard; clients poll with the last
@@ -459,6 +496,12 @@ func (s *server) applyRulesHandler(w http.ResponseWriter, r *http.Request) {
 // never sent back — only whether one is set.
 func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
 	snap := s.settings.snapshot()
+	gtEnabled, gtInterval, gtSilent, gtSample := true, 360, 60, 50
+	if s.gt != nil {
+		var i, sl time.Duration
+		gtEnabled, i, sl, gtSample = s.gt.gtConfig()
+		gtInterval, gtSilent = int(i/time.Minute), int(sl/time.Minute)
+	}
 	writeJSON(w, 200, map[string]interface{}{
 		"demo_feed":     s.demoFeedOn(),
 		"demo_feed_src": srcOf(snap.DemoFeed),
@@ -470,6 +513,10 @@ func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
 			len(os.Getenv("ASI_AI_API_KEY")) > 0,
 		"ai_base_url_effective": firstNonEmpty(snap.AIBaseURL, os.Getenv("ASI_AI_BASE_URL"), "https://api.openai.com/v1"),
 		"ai_model_effective":    firstNonEmpty(snap.AIModel, os.Getenv("ASI_AI_MODEL"), "gpt-4o-mini"),
+		"gt_enabled":            gtEnabled,
+		"gt_interval_min":       gtInterval,
+		"gt_silent_min":         gtSilent,
+		"gt_sample_size":        gtSample,
 	})
 }
 
@@ -530,6 +577,16 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 		} else {
 			changes = append(changes, "wyłączono tryb regułowy — triaż wraca do modeli decyzyjnych")
 		}
+	}
+	if p.GTEnabled != nil && (before.GTEnabled == nil || *before.GTEnabled != *p.GTEnabled) {
+		if *p.GTEnabled {
+			changes = append(changes, "włączono okresowe aktywne skany kontrolne (ground truth dla cichych hostów)")
+		} else {
+			changes = append(changes, "WYŁĄCZONO skany kontrolne — luka obserwowalności cichych hostów (silent_stealth) nie będzie weryfikowana")
+		}
+	}
+	if p.GTIntervalMin != nil || p.GTSilentMin != nil || p.GTSampleSize != nil {
+		changes = append(changes, "zmieniono politykę skanów kontrolnych")
 	}
 	if p.AIBaseURL != nil && *p.AIBaseURL != before.AIBaseURL {
 		changes = append(changes, "zmieniono adres API AI")
