@@ -142,3 +142,19 @@ func (t *Targets) Chunks(size int) [][]string {
 	}
 	return out
 }
+
+// ParseAllow parses a comma-separated list of CIDRs for CheckAllowed.
+func ParseAllow(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, f := range strings.Split(s, ",") {
+		if f = strings.TrimSpace(f); f == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(f)
+		if err != nil {
+			return nil, fmt.Errorf("allow list: %w", err)
+		}
+		out = append(out, p.Masked())
+	}
+	return out, nil
+}

@@ -3,6 +3,7 @@
 #   docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
 #                  -f lab/agh/traffic-custom-network.yml up -d
 #   docker compose -f ... -f ... logs -f sensor      # zdarzenia sensora
+#   docker compose -f ... -f ... logs -f trigger     # skany wzbudzone przez sensor
 #
 # Pliki AGH (lab/agh/upstream/) zostają bez zmian; bez tej nakładki stack działa
 # dokładnie jak u AGH. Nakładka nie używa żadnych lokalnych ścieżek (compose liczy
@@ -13,7 +14,15 @@
 #   - traffic: łagodny ruch w tle (GET-y, połączenia z odczytem bannera), bez logowań,
 #   - flapper: host niestabilny, usługa HTTP działa FLAP_UP s, milczy FLAP_DOWN s,
 #   - sensor: pasywny sensor na wszystkich mostach Dockera (`-i 'br-*'`), sieć hosta,
-#     tylko CAP_NET_RAW.
+#     tylko CAP_NET_RAW; zdarzenia wysyła webhookiem do triggera,
+#   - trigger: na zdarzenia sensora odpala celowane skany (nmap -sT + prober +
+#     sygnatury) tylko w sieciach Dockera (172.16.0.0/12); znaleziska w logach i
+#     w wolumenie trigger-data (findings.jsonl). Słucha tylko na 127.0.0.1:8099.
+#
+# Własna infrastruktura na tym samym hoście (np. kontenery modeli) nie powinna
+# wzbudzać skanów:
+#   SENSOR_IFACES='br-*,!br-edge*'   mosty, na których sensor ma nie słuchać,
+#   SOTW_EXCLUDE_NET=172.18.0.0/16   sieci pomijane przez sensor i trigger.
 #
 # Nakładka celowo nie nadaje sieciom AGH własnych nazw mostów: wtedy compose
 # uruchomiony bez nakładki (np. ich quickstart.sh) widzi inną definicję sieci,
@@ -59,16 +68,42 @@ services:
     cap_add: [NET_RAW]
     command:
       - -i
-      - br-*
+      - ${SENSOR_IFACES:-br-*}
       - -learn
       - ${SENSOR_LEARN:-30s}
       - -silent-after
       - ${SENSOR_SILENT_AFTER:-60s}
+      - -name
+      - agh-lab
+      - -webhook
+      - http://127.0.0.1:8099/events
+    environment:
+      SOTW_WEBHOOK_TOKEN: ${SOTW_WEBHOOK_TOKEN:-agh-lab-token}
+      SOTW_EXCLUDE_NET: ${SOTW_EXCLUDE_NET:-}
     volumes:
       - sensor-data:/data
     # Mosty powstają razem z sieciami stacku; sensor startuje po kontenerach,
     # które ich używają, więc wzorzec br-* już je widzi.
-    depends_on: [traffic, flapper]
+    depends_on: [traffic, flapper, trigger]
+
+  trigger:
+    image: ${SOTW_IMAGE_PREFIX:-ghcr.io/inner-savages/silence-on-the-wire}/trigger:${SOTW_TAG:-latest}
+    restart: unless-stopped
+    # Sieć hosta: dociera do kontenerów na każdym moście, a jej własne adresy
+    # (bramy mostów) są ignorowane jako źródło ruchu skanera.
+    network_mode: host
+    cap_drop: [ALL] # nmap -sT nie potrzebuje żadnych uprawnień
+    command:
+      - -allow
+      - 172.16.0.0/12
+      - -listen
+      - 127.0.0.1:8099
+    environment:
+      SOTW_WEBHOOK_TOKEN: ${SOTW_WEBHOOK_TOKEN:-agh-lab-token}
+      SOTW_EXCLUDE_NET: ${SOTW_EXCLUDE_NET:-}
+    volumes:
+      - trigger-data:/data
 
 volumes:
   sensor-data:
+  trigger-data:

@@ -2,16 +2,18 @@
 
 IMAGE_PREFIX ?= ghcr.io/inner-savages/silence-on-the-wire
 
-# Obrazy sensora, generatora ruchu i skanera, otagowane tak jak w rejestrze, więc
+# Obrazy sensora, generatora ruchu, skanera i triggera, otagowane tak jak w rejestrze, więc
 # nakładki compose używają ich lokalnie bez pobierania.
 images:
 	docker build --target sensor  -t $(IMAGE_PREFIX)/sensor:latest .
 	docker build --target traffic -t $(IMAGE_PREFIX)/traffic:latest .
 	docker build --target scanner -t $(IMAGE_PREFIX)/scanner:latest .
+	docker build --target trigger -t $(IMAGE_PREFIX)/trigger:latest .
 
 build:
 	go build -o bin/sensor ./cmd/sensor
 	go build -o bin/scanner ./cmd/scanner
+	go build -o bin/trigger ./cmd/trigger
 	CGO_ENABLED=0 go build -o bin/traffic ./cmd/traffic
 	CGO_ENABLED=0 go build -o bin/edgegate ./cmd/edgegate
 
