@@ -88,6 +88,11 @@ type server struct {
 	// registrationClosed turns off self-service sign-up (ASI_ALLOW_REGISTRATION=false).
 	// The very first account can still be created while no user exists.
 	registrationClosed bool
+
+	// triggerURL, when set (ASI_TRIGGER_URL), turns the "scan" action into a
+	// real request for active verification by the trigger.
+	triggerURL   string
+	triggerToken string
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -161,6 +166,7 @@ func (s *server) routes() http.Handler {
 	// Machine intake: bearer token, unchanged contract.
 	mux.HandleFunc("POST /events", s.intake)
 	mux.HandleFunc("POST /logs", s.intakeLogs)
+	mux.HandleFunc("POST /findings", s.intakeFindings)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	s.registerRBACRoutes(mux)
 	return s.rbac(mux)
@@ -1031,6 +1037,13 @@ func (s *server) action(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
+	}
+	// The scan action requests active verification from the trigger; the
+	// finding correlates back onto this case through POST /findings.
+	if act == "scan" {
+		if c, ok := s.store.Get(r.PathValue("id")); ok {
+			s.requestVerification(c)
+		}
 	}
 	writeJSON(w, 200, map[string]interface{}{"state": "executed", "demo": s.demoData})
 }
