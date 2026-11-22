@@ -1,0 +1,13 @@
+FROM golang:1.26.8 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY cmd/edgegate ./cmd/edgegate
+COPY internal/edge ./internal/edge
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/edgegate ./cmd/edgegate
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && mkdir /data && chown 65532:65532 /data
+COPY --from=build /out/edgegate /usr/local/bin/edgegate
+USER 65532:65532
+WORKDIR /work
+ENTRYPOINT ["edgegate"]

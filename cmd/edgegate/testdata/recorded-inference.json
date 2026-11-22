@@ -1,0 +1,2222 @@
+[
+  {
+    "event": {
+      "time": "2026-11-21T17:31:22+01:00",
+      "type": "host_new",
+      "ip": "10.64.106.98",
+      "new": "02:e0:2e:1e:18:af",
+      "source": "passive"
+    },
+    "features": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -0.9920049496797149,
+      -0.12619896913583006,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.1140615507959882,
+      "tree": 0.010651930161781195,
+      "gnb": 1e-15,
+      "rules": 0.01,
+      "baseline": 0.0866387345396799,
+      "basal": 0.04610281065106392,
+      "laya": 0.4973,
+      "kev": 0.6043016486307835
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.0866387345396799,
+            "event": {
+              "time": "2026-11-21T17:31:22+01:00",
+              "type": "host_new",
+              "ip": "10.64.106.98",
+              "new": "02:e0:2e:1e:18:af",
+              "source": "passive"
+            },
+            "host_seen_before": false,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 0,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.04610281065106392,
+              "probabilities": {
+                "true": 0.04610281065106392,
+                "false": 0.9538971781730652
+              },
+              "confidence": 0.9538971781730652
+            }
+          },
+          "usage": {
+            "input_tokens": 299,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 3233.52,
+            "longest_prompt_tokens": 299
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.0866387345396799,
+            "event": {
+              "time": "2026-11-21T17:31:22+01:00",
+              "type": "host_new",
+              "ip": "10.64.106.98",
+              "new": "02:e0:2e:1e:18:af",
+              "source": "passive"
+            },
+            "host_seen_before": false,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 0,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4973,
+              "confidence": 0.5027,
+              "answer_confidence": 0.5027,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 244,
+            "output_tokens": 0,
+            "state_tokens": 173,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.0866387345396799,
+            "event": {
+              "time": "2026-11-21T17:31:22+01:00",
+              "type": "host_new",
+              "ip": "10.64.106.98",
+              "new": "02:e0:2e:1e:18:af",
+              "source": "passive"
+            },
+            "host_seen_before": false,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 0,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.6043016486307835
+            }
+          },
+          "usage": {
+            "input_tokens": 239,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:32:40+01:00",
+      "type": "service_new",
+      "ip": "10.64.106.98",
+      "port": 22,
+      "proto": "tcp",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0.43694478524670216,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      -0.9925461516413221,
+      -0.12186934340514717,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.45938040586272005,
+      "tree": 0,
+      "gnb": 0.8459356964357666,
+      "rules": 0.53,
+      "baseline": 0.23886171683954702,
+      "basal": 0.9209194183349609,
+      "laya": 0.483,
+      "kev": 0.6790258131356607
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.23886171683954702,
+            "event": {
+              "time": "2026-11-21T17:32:40+01:00",
+              "type": "service_new",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 1,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9209194183349609,
+              "probabilities": {
+                "true": 0.9209194183349609,
+                "false": 0.07908053696155548
+              },
+              "confidence": 0.9209194183349609
+            }
+          },
+          "usage": {
+            "input_tokens": 293,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2590.86,
+            "longest_prompt_tokens": 293
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.23886171683954702,
+            "event": {
+              "time": "2026-11-21T17:32:40+01:00",
+              "type": "service_new",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 1,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.483,
+              "confidence": 0.517,
+              "answer_confidence": 0.517,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 236,
+            "output_tokens": 0,
+            "state_tokens": 165,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.23886171683954702,
+            "event": {
+              "time": "2026-11-21T17:32:40+01:00",
+              "type": "service_new",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 1,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.6790258131356607
+            }
+          },
+          "usage": {
+            "input_tokens": 232,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:33:41+01:00",
+      "type": "service_changed",
+      "ip": "10.64.106.98",
+      "port": 22,
+      "proto": "tcp",
+      "old": "http; server=nginx/1.31.9",
+      "new": "http; server=nginx; powered_by=PHP/8.1",
+      "banner": {
+        "protocol": "http",
+        "server": "nginx"
+      },
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0.41271343850450914,
+      2,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      -0.9930684569549263,
+      -0.1175373974578376,
+      1,
+      0
+    ],
+    "scores": {
+      "logistic": 0.17196573980201715,
+      "tree": 0.010651930161781195,
+      "gnb": 0.9998084433219875,
+      "rules": 0.01,
+      "baseline": 0.2238767816823328,
+      "basal": 0.9080389142036438,
+      "laya": 0.4714,
+      "kev": 0.6264743898544931
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.2238767816823328,
+            "event": {
+              "time": "2026-11-21T17:33:41+01:00",
+              "type": "service_changed",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "old": "http; server=nginx/1.31.9",
+              "new": "http; server=nginx; powered_by=PHP/8.1",
+              "banner": {
+                "protocol": "http",
+                "server": "nginx"
+              },
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 2,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9080389142036438,
+              "probabilities": {
+                "true": 0.9080389142036438,
+                "false": 0.0919611006975174
+              },
+              "confidence": 0.9080389142036438
+            }
+          },
+          "usage": {
+            "input_tokens": 343,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2972.46,
+            "longest_prompt_tokens": 343
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.2238767816823328,
+            "event": {
+              "time": "2026-11-21T17:33:41+01:00",
+              "type": "service_changed",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "old": "http; server=nginx/1.31.9",
+              "new": "http; server=nginx; powered_by=PHP/8.1",
+              "banner": {
+                "protocol": "http",
+                "server": "nginx"
+              },
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 2,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4714,
+              "confidence": 0.5286,
+              "answer_confidence": 0.5286,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 290,
+            "output_tokens": 0,
+            "state_tokens": 219,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.2238767816823328,
+            "event": {
+              "time": "2026-11-21T17:33:41+01:00",
+              "type": "service_changed",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "old": "http; server=nginx/1.31.9",
+              "new": "http; server=nginx; powered_by=PHP/8.1",
+              "banner": {
+                "protocol": "http",
+                "server": "nginx"
+              },
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 2,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.6264743898544931
+            }
+          },
+          "usage": {
+            "input_tokens": 279,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": true,
+    "expected_fast": true
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:35:30+01:00",
+      "type": "service_silent",
+      "ip": "10.64.106.98",
+      "port": 22,
+      "proto": "tcp",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0.47004803657924166,
+      3,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1,
+      1,
+      -0.9940563382223195,
+      -0.10886687485196507,
+      1,
+      0
+    ],
+    "scores": {
+      "logistic": 0.7035420731552321,
+      "tree": 0.03452914798206278,
+      "gnb": 0.9987204498099749,
+      "rules": 0.01,
+      "baseline": 0.21620117301255315,
+      "basal": 0.9242792725563049,
+      "laya": 0.5097,
+      "kev": 0.6040535125273178
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.21620117301255315,
+            "event": {
+              "time": "2026-11-21T17:35:30+01:00",
+              "type": "service_silent",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 1,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9242792725563049,
+              "probabilities": {
+                "true": 0.9242792725563049,
+                "false": 0.07572074234485626
+              },
+              "confidence": 0.9242792725563049
+            }
+          },
+          "usage": {
+            "input_tokens": 294,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2332.16,
+            "longest_prompt_tokens": 294
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.21620117301255315,
+            "event": {
+              "time": "2026-11-21T17:35:30+01:00",
+              "type": "service_silent",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 1,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.5097,
+              "confidence": 0.5097,
+              "answer_confidence": 0.5097,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 237,
+            "output_tokens": 0,
+            "state_tokens": 166,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.21620117301255315,
+            "event": {
+              "time": "2026-11-21T17:35:30+01:00",
+              "type": "service_silent",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 1,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.6040535125273178
+            }
+          },
+          "usage": {
+            "input_tokens": 233,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": true,
+    "expected_fast": true
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:36:48+01:00",
+      "type": "service_back",
+      "ip": "10.64.106.98",
+      "port": 22,
+      "proto": "tcp",
+      "old": "silent",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0.43694478524670216,
+      3,
+      1,
+      1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      -0.9945218953682734,
+      -0.10452846326765335,
+      1,
+      1
+    ],
+    "scores": {
+      "logistic": 0.25154826653383816,
+      "tree": 0.03452914798206278,
+      "gnb": 1e-15,
+      "rules": 0.01,
+      "baseline": 0.22418609015696106,
+      "basal": 0.9393784403800964,
+      "laya": 0.4603,
+      "kev": 0.615046213846427
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.22418609015696106,
+            "event": {
+              "time": "2026-11-21T17:36:48+01:00",
+              "type": "service_back",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "old": "silent",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 1,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 1,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9393784403800964,
+              "probabilities": {
+                "true": 0.9393784403800964,
+                "false": 0.06062157079577446
+              },
+              "confidence": 0.9393784403800964
+            }
+          },
+          "usage": {
+            "input_tokens": 299,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2415.81,
+            "longest_prompt_tokens": 299
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.22418609015696106,
+            "event": {
+              "time": "2026-11-21T17:36:48+01:00",
+              "type": "service_back",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "old": "silent",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 1,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 1,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4603,
+              "confidence": 0.5397,
+              "answer_confidence": 0.5397,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 242,
+            "output_tokens": 0,
+            "state_tokens": 171,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.22418609015696106,
+            "event": {
+              "time": "2026-11-21T17:36:48+01:00",
+              "type": "service_back",
+              "ip": "10.64.106.98",
+              "port": 22,
+              "proto": "tcp",
+              "old": "silent",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 1,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 1,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.615046213846427
+            }
+          },
+          "usage": {
+            "input_tokens": 237,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:48:04+01:00",
+      "type": "host_new",
+      "ip": "10.64.108.52",
+      "new": "02:f6:a9:46:b8:7b",
+      "source": "passive"
+    },
+    "features": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      -0.9986295347545738,
+      -0.05233595624294342,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.1132864157517201,
+      "tree": 0.010651930161781195,
+      "gnb": 1e-15,
+      "rules": 0.01,
+      "baseline": 0.0866387345396799,
+      "basal": 0.042848747223615646,
+      "laya": 0.4901,
+      "kev": 0.5933196975816961
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.0866387345396799,
+            "event": {
+              "time": "2026-11-21T17:48:04+01:00",
+              "type": "host_new",
+              "ip": "10.64.108.52",
+              "new": "02:f6:a9:46:b8:7b",
+              "source": "passive"
+            },
+            "host_seen_before": false,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 0,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.042848747223615646,
+              "probabilities": {
+                "true": 0.042848747223615646,
+                "false": 0.9571512937545776
+              },
+              "confidence": 0.9571512937545776
+            }
+          },
+          "usage": {
+            "input_tokens": 298,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2770.64,
+            "longest_prompt_tokens": 298
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.0866387345396799,
+            "event": {
+              "time": "2026-11-21T17:48:04+01:00",
+              "type": "host_new",
+              "ip": "10.64.108.52",
+              "new": "02:f6:a9:46:b8:7b",
+              "source": "passive"
+            },
+            "host_seen_before": false,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 0,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4901,
+              "confidence": 0.5099,
+              "answer_confidence": 0.5099,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 245,
+            "output_tokens": 0,
+            "state_tokens": 174,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.0866387345396799,
+            "event": {
+              "time": "2026-11-21T17:48:04+01:00",
+              "type": "host_new",
+              "ip": "10.64.108.52",
+              "new": "02:f6:a9:46:b8:7b",
+              "source": "passive"
+            },
+            "host_seen_before": false,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 0,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.5933196975816961
+            }
+          },
+          "usage": {
+            "input_tokens": 238,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:48:57+01:00",
+      "type": "service_new",
+      "ip": "10.64.108.52",
+      "port": 8080,
+      "proto": "tcp",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0.39889840465642745,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1,
+      -0.9986295347545738,
+      -0.05233595624294342,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.4372594041314762,
+      "tree": 0,
+      "gnb": 0.6383143129872194,
+      "rules": 0.29000000000000004,
+      "baseline": 0.21378576265608135,
+      "basal": 0.9293641448020935,
+      "laya": 0.4734,
+      "kev": 0.6564075610354736
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.21378576265608135,
+            "event": {
+              "time": "2026-11-21T17:48:57+01:00",
+              "type": "service_new",
+              "ip": "10.64.108.52",
+              "port": 8080,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 1,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9293641448020935,
+              "probabilities": {
+                "true": 0.9293641448020935,
+                "false": 0.07063587754964828
+              },
+              "confidence": 0.9293641448020935
+            }
+          },
+          "usage": {
+            "input_tokens": 295,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2534.73,
+            "longest_prompt_tokens": 295
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.21378576265608135,
+            "event": {
+              "time": "2026-11-21T17:48:57+01:00",
+              "type": "service_new",
+              "ip": "10.64.108.52",
+              "port": 8080,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 1,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4734,
+              "confidence": 0.5266,
+              "answer_confidence": 0.5266,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 237,
+            "output_tokens": 0,
+            "state_tokens": 166,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.21378576265608135,
+            "event": {
+              "time": "2026-11-21T17:48:57+01:00",
+              "type": "service_new",
+              "ip": "10.64.108.52",
+              "port": 8080,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 0,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 1,
+            "recent_new_services_5m": 0,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.6564075610354736
+            }
+          },
+          "usage": {
+            "input_tokens": 234,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:49:27+01:00",
+      "type": "service_new",
+      "ip": "10.64.108.52",
+      "port": 8443,
+      "proto": "tcp",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0.3433987204485146,
+      2,
+      1,
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      -0.9988483864849507,
+      -0.04797812852134469,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.6483093699626576,
+      "tree": 0,
+      "gnb": 0.8996577799908522,
+      "rules": 0.29000000000000004,
+      "baseline": 0.24063407035873885,
+      "basal": 0.9358798265457153,
+      "laya": 0.4917,
+      "kev": 0.6753260354313861
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.24063407035873885,
+            "event": {
+              "time": "2026-11-21T17:49:27+01:00",
+              "type": "service_new",
+              "ip": "10.64.108.52",
+              "port": 8443,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 2,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9358798265457153,
+              "probabilities": {
+                "true": 0.9358798265457153,
+                "false": 0.06412016600370407
+              },
+              "confidence": 0.9358798265457153
+            }
+          },
+          "usage": {
+            "input_tokens": 295,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2618.12,
+            "longest_prompt_tokens": 295
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.24063407035873885,
+            "event": {
+              "time": "2026-11-21T17:49:27+01:00",
+              "type": "service_new",
+              "ip": "10.64.108.52",
+              "port": 8443,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 2,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4917,
+              "confidence": 0.5083,
+              "answer_confidence": 0.5083,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 238,
+            "output_tokens": 0,
+            "state_tokens": 167,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.24063407035873885,
+            "event": {
+              "time": "2026-11-21T17:49:27+01:00",
+              "type": "service_new",
+              "ip": "10.64.108.52",
+              "port": 8443,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 1,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 2,
+            "recent_new_services_5m": 1,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.6753260354313861
+            }
+          },
+          "usage": {
+            "input_tokens": 234,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:49:34+01:00",
+      "type": "service_closed",
+      "ip": "10.64.108.52",
+      "port": 3389,
+      "proto": "tcp",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0.20794415416798356,
+      3,
+      2,
+      0,
+      0,
+      0,
+      2,
+      1,
+      1,
+      -0.9988483864849507,
+      -0.04797812852134469,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.717071875929813,
+      "tree": 0,
+      "gnb": 0.9923772624349122,
+      "rules": 0.2,
+      "baseline": 0.47661637049743416,
+      "basal": 0.9587645530700684,
+      "laya": 0.503,
+      "kev": 0.7341162130192895
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.47661637049743416,
+            "event": {
+              "time": "2026-11-21T17:49:34+01:00",
+              "type": "service_closed",
+              "ip": "10.64.108.52",
+              "port": 3389,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 2,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 2,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.9587645530700684,
+              "probabilities": {
+                "true": 0.9587645530700684,
+                "false": 0.04123546555638313
+              },
+              "confidence": 0.9587645530700684
+            }
+          },
+          "usage": {
+            "input_tokens": 295,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2624.05,
+            "longest_prompt_tokens": 295
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.47661637049743416,
+            "event": {
+              "time": "2026-11-21T17:49:34+01:00",
+              "type": "service_closed",
+              "ip": "10.64.108.52",
+              "port": 3389,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 2,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 2,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.503,
+              "confidence": 0.503,
+              "answer_confidence": 0.503,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 238,
+            "output_tokens": 0,
+            "state_tokens": 167,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.47661637049743416,
+            "event": {
+              "time": "2026-11-21T17:49:34+01:00",
+              "type": "service_closed",
+              "ip": "10.64.108.52",
+              "port": 3389,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 2,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 3,
+            "recent_new_services_5m": 2,
+            "recent_silent_5m": 0,
+            "risky_port": true,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.7341162130192895
+            }
+          },
+          "usage": {
+            "input_tokens": 234,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": true,
+    "expected_fast": false
+  },
+  {
+    "event": {
+      "time": "2026-11-21T17:49:49+01:00",
+      "type": "service_back",
+      "ip": "10.64.108.52",
+      "port": 80,
+      "proto": "tcp",
+      "source": "passive"
+    },
+    "features": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0.2772588722239781,
+      4,
+      2,
+      0,
+      0,
+      0,
+      3,
+      1,
+      1,
+      -0.9988483864849507,
+      -0.04797812852134469,
+      0,
+      0
+    ],
+    "scores": {
+      "logistic": 0.3534370121925811,
+      "tree": 0,
+      "gnb": 0.23732297242706904,
+      "rules": 0.2,
+      "baseline": 0.23173097850463376,
+      "basal": 0.21038536727428436,
+      "laya": 0.4787,
+      "kev": 0.5860541303454622
+    },
+    "models": {
+      "basal": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.23173097850463376,
+            "event": {
+              "time": "2026-11-21T17:49:49+01:00",
+              "type": "service_back",
+              "ip": "10.64.108.52",
+              "port": 80,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 3,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 4,
+            "recent_new_services_5m": 2,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "basal-omni-pico-GGUF",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.21038536727428436,
+              "probabilities": {
+                "true": 0.21038536727428436,
+                "false": 0.7896146774291992
+              },
+              "confidence": 0.7896146774291992
+            }
+          },
+          "usage": {
+            "input_tokens": 293,
+            "output_tokens": 0,
+            "questions": 1,
+            "branches": 1,
+            "latency_ms": 2851.34,
+            "longest_prompt_tokens": 293
+          }
+        }
+      },
+      "laya": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.23173097850463376,
+            "event": {
+              "time": "2026-11-21T17:49:49+01:00",
+              "type": "service_back",
+              "ip": "10.64.108.52",
+              "port": 80,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 3,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 4,
+            "recent_new_services_5m": 2,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "laya-rl-agent",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.4787,
+              "confidence": 0.5213,
+              "answer_confidence": 0.5213,
+              "action": {
+                "act_probability": 1.0
+              }
+            }
+          },
+          "usage": {
+            "input_tokens": 237,
+            "output_tokens": 0,
+            "state_tokens": 166,
+            "state_tokens_dropped": 0,
+            "truncated": false,
+            "truncated_questions": []
+          },
+          "routing": {
+            "model": "english",
+            "repo": "/models/laya",
+            "reason": "explicit lang='en'",
+            "detection": null,
+            "workflow": null
+          }
+        }
+      },
+      "kev": {
+        "request": {
+          "lang": "en",
+          "questions": {
+            "attack": {
+              "criteria": {
+                "false": "Likely routine observation",
+                "true": "Escalate for investigation"
+              },
+              "instructions": "Should this passive network-monitoring event be forwarded for centralized security investigation? Treat unexpected service exposure, risky ports, host changes and correlated bursts as suspicious. Silence alone is not evidence of compromise. If evidence is uncertain, prefer investigation.",
+              "type": "noul"
+            }
+          },
+          "state": {
+            "baseline_anomaly": 0.23173097850463376,
+            "event": {
+              "time": "2026-11-21T17:49:49+01:00",
+              "type": "service_back",
+              "ip": "10.64.108.52",
+              "port": 80,
+              "proto": "tcp",
+              "source": "passive"
+            },
+            "host_seen_before": true,
+            "recent_distinct_ports_5m": 3,
+            "recent_fingerprint_changes_5m": 0,
+            "recent_host_events_5m": 4,
+            "recent_new_services_5m": 2,
+            "recent_silent_5m": 0,
+            "risky_port": false,
+            "unusual_banner": false
+          }
+        },
+        "response": {
+          "model": "/models/Kev-0.8B-Q8_0.gguf",
+          "answers": {
+            "attack": {
+              "type": "noul",
+              "noul": 0.5860541303454622
+            }
+          },
+          "usage": {
+            "input_tokens": 232,
+            "output_tokens": 0
+          }
+        }
+      }
+    },
+    "expected_forward": false,
+    "expected_fast": false
+  }
+]
