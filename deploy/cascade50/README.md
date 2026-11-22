@@ -307,6 +307,35 @@ The **Ustawienia** tab (admin) persists runtime configuration in
   must confirm, so the most destructive action always keeps a person in the
   loop.
 
+### Rule mode: deterministic triage without the model stack
+
+When the decision models digest too slowly (the Bayesian stage, the decision
+tree, the basal/laya/kev backends or the LLM operator all stall behind rate
+limits or heavy hardware), the console can drop to **hard rules** from the
+**Reguły** tab. With rule mode enabled every new escalation is triaged
+instantly against an ordered rule list — offline, with no model calls at
+all:
+
+- Rules are edited in the dashboard (admin) and persisted in `rules.json`.
+  Conditions: event types, ports, source host or CIDR, sensor, escalation
+  reasons, minimum score, unresolved flag. Empty conditions match
+  everything; the first matching rule wins.
+- Outcomes: set status, assign, attach a justification note, and run a
+  non-destructive action (observe, scan, re-analyze). Isolation follows the
+  same rule as everywhere else in the console — a rule may only **arm** it;
+  a human confirms.
+- Every rule decision is recorded through the same audited mutation as a
+  human or the AI operator, under the actor `silnik reguł · <nazwa>`, and
+  lands in the case history and the live feed (kind `REGUŁA`).
+- Switching rule mode on immediately re-triages the open backlog
+  (synchronously — the engine needs no provider round-trips), and the
+  **Zastosuj do otwartych spraw** button re-runs the rules on demand, e.g.
+  right after editing the list. Switching it off returns triage to the
+  model stack.
+
+Rule mode and the AI operator are complementary: rules are the guaranteed,
+instant fallback path; the models add judgement when latency allows it.
+
 ## Model interchange and the System One standard
 
 All three neural backends speak one vendor-neutral wire protocol,

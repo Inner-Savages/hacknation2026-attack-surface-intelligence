@@ -30,6 +30,10 @@ func testServer(t *testing.T) (*server, *httptest.Server, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rl, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	u, err := a.register("janek", "Janek Baumgart", "testowe1")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +42,7 @@ func testServer(t *testing.T) (*server, *httptest.Server, string) {
 	s := &server{
 		store: store, token: "test-token", demoData: true, feed: newLiveFeed(100),
 		operator: "Janek Baumgart", aiAuto: true,
-		auth: a, settings: st,
+		auth: a, settings: st, rules: rl,
 	}
 	return s, httptest.NewServer(s.routes()), sess.Token
 }
@@ -845,3 +849,236 @@ func TestAIOperatorDecision(t *testing.T) {
 		}
 	}
 }
+
+// --- rule mode: deterministic triage without the model stack ---------------
+
+func ruleCase() *Case {
+	return &Case{
+		EventID: "r1", SensorID: "edge-a-1", EventType: "service_changed",
+		Source: "10.0.4.17", Target: "tcp:22", Score: 0.86,
+		Reason: "remote_rank_max", Status: StatusNew,
+	}
+}
+
+func TestRuleMatching(t *testing.T) {
+	rs := &ruleStore{rules: []*Rule{}}
+	c := ruleCase()
+
+	// Empty conditions match everything; the first match wins.
+	rs.rules = []*Rule{
+		{ID: "a", Name: "łap-wszystko", Enabled: true, SetStatus: StatusVerify},
+		{ID: "b", Name: "nigdy", Enabled: true, SetStatus: StatusConfirmed},
+	}
+	if got := rs.match(c); got == nil || got.ID != "a" {
+		t.Fatalf("first match should win, got %+v", got)
+	}
+
+	// Disabled rules are skipped.
+	rs.rules[0].Enabled = false
+	if got := rs.match(c); got == nil || got.ID != "b" {
+		t.Fatalf("disabled rule should be skipped, got %+v", got)
+	}
+
+	// Conditions: event types, ports, CIDR, sensor, min score, unresolved.
+	rs.rules = []*Rule{{
+		ID: "c", Name: "rdp-spoza-sieci", Enabled: true,
+		EventTypes: []string{"service_new"}, Ports: []int{3389},
+	}}
+	if rs.match(c) != nil {
+		t.Fatal("event type mismatch should not match")
+	}
+	rs.rules[0].EventTypes = []string{"service_changed"}
+	if rs.match(c) != nil {
+		t.Fatal("port mismatch should not match")
+	}
+	rs.rules[0].Ports = []int{22, 3389}
+	rs.rules[0].IPMatch = "192.168.0.0/16"
+	if rs.match(c) != nil {
+		t.Fatal("CIDR mismatch should not match")
+	}
+	rs.rules[0].IPMatch = "10.0.0.0/8"
+	rs.rules[0].SensorID = "edge-b-9"
+	if rs.match(c) != nil {
+		t.Fatal("sensor mismatch should not match")
+	}
+	rs.rules[0].SensorID = "edge-a-1"
+	min := 0.9
+	rs.rules[0].MinScore = &min
+	if rs.match(c) != nil {
+		t.Fatal("score below min_score should not match")
+	}
+	min = 0.5
+	unres := true
+	rs.rules[0].Unresolved = &unres
+	if rs.match(c) != nil {
+		t.Fatal("unresolved mismatch should not match")
+	}
+	unres = false
+	if got := rs.match(c); got == nil || got.ID != "c" {
+		t.Fatalf("fully matching rule should win, got %+v", got)
+	}
+}
+
+func TestRuleValidationAndPersistence(t *testing.T) {
+	dir := t.TempDir()
+	rs, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.replace([]*Rule{{Name: "zły-cidr", IPMatch: "10.0.0.0/33"}}); err == nil {
+		t.Fatal("invalid CIDR was accepted")
+	}
+	if err := rs.replace([]*Rule{{Name: "zły-status", SetStatus: "banan"}}); err == nil {
+		t.Fatal("invalid status was accepted")
+	}
+	if err := rs.replace([]*Rule{{Name: "zła-akcja", Action: "podpal-serwerownię"}}); err == nil {
+		t.Fatal("invalid action was accepted")
+	}
+	if err := rs.replace([]*Rule{{Name: ""}}); err == nil {
+		t.Fatal("nameless rule was accepted")
+	}
+	good := []*Rule{{Name: "ok", Enabled: true, SetStatus: StatusVerify, IPMatch: "10.0.0.0/8"}}
+	if err := rs.replace(good); err != nil {
+		t.Fatalf("valid rule rejected: %v", err)
+	}
+	if good[0].ID == "" {
+		t.Fatal("rule id was not generated")
+	}
+	reloaded, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.list()) != 1 || reloaded.list()[0].Name != "ok" {
+		t.Fatal("rules were not durable across reopen")
+	}
+}
+
+// Rule mode triages fresh escalations deterministically and leaves the same
+// audit trail a human or the AI operator would leave.
+func TestRuleModeTriageViaIntake(t *testing.T) {
+	s, _, _ := testServer(t)
+	if err := s.rules.replace([]*Rule{{
+		Name: "ssh-wysoka-ocena", Enabled: true, Ports: []int{22},
+		SetStatus: StatusVerify, Assign: "Janek Baumgart",
+		Note: "port 22 z wysoką oceną — do weryfikacji",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// Rule mode on via settings (same as the UI toggle).
+	if err := s.settings.update(configPatch{RuleMode: boolPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	h := s.routes()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/events", strings.NewReader(escalation("rm1", "edge-a-1")))
+	r.Header.Set("Authorization", "Bearer test-token")
+	h.ServeHTTP(w, r)
+	if w.Code != 202 {
+		t.Fatalf("intake failed: %d", w.Code)
+	}
+	c, ok := s.store.Get("rm1")
+	if !ok {
+		t.Fatal("case missing")
+	}
+	if c.Status != StatusVerify || c.Assignee != "Janek Baumgart" {
+		t.Fatalf("rule did not triage the case: %+v", c)
+	}
+	var sawRule bool
+	for _, e := range c.History {
+		if e.Kind == "rule" && strings.HasPrefix(e.Actor, "silnik reguł · ssh-wysoka-ocena") {
+			sawRule = true
+		}
+	}
+	if !sawRule {
+		t.Fatalf("rule decision missing from the audit trail: %+v", c.History)
+	}
+	if len(c.Notes) != 1 || c.Notes[0].Actor != "silnik reguł · ssh-wysoka-ocena" {
+		t.Fatalf("rule note missing: %+v", c.Notes)
+	}
+	// With rule mode off the same intake stays untouched by the engine.
+	if err := s.settings.update(configPatch{RuleMode: boolPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("POST", "/events", strings.NewReader(escalation("rm2", "edge-a-1")))
+	r.Header.Set("Authorization", "Bearer test-token")
+	h.ServeHTTP(w, r)
+	c, _ = s.store.Get("rm2")
+	if c.Status != StatusNew {
+		t.Fatalf("rule engine acted with rule mode off: %+v", c)
+	}
+}
+
+// A rule may never cut a host off by itself — it only arms the isolation,
+// exactly like the AI operator; a human confirms.
+func TestRuleIsolateOnlyArms(t *testing.T) {
+	s, _, _ := testServer(t)
+	if err := s.rules.replace([]*Rule{{Name: "izoluj-rdp", Enabled: true, Ports: []int{22}, Action: "isolate"}}); err != nil {
+		t.Fatal(err)
+	}
+	c := ruleCase()
+	if _, err := s.store.AddEscalation(c); err != nil {
+		t.Fatal(err)
+	}
+	if !s.applyRules(c) {
+		t.Fatal("rule did not match")
+	}
+	got, _ := s.store.Get("r1")
+	if got.PendingAction != "isolate" {
+		t.Fatalf("isolation was not armed: %+v", got)
+	}
+	for _, a := range got.Actions {
+		if a.Action == "isolate" && a.Executed {
+			t.Fatal("rule executed isolation without a human")
+		}
+	}
+}
+
+func TestRulesAPIAndApplyToOpen(t *testing.T) {
+	s, _, tok := testServer(t)
+	h := s.routes()
+	call := func(method, path, body, token string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest(method, path, strings.NewReader(body)), token))
+		return w
+	}
+	// Non-admin operators may read rules but not change them.
+	u, _ := s.auth.register("ania", "Anna Lis", "haslo123")
+	aniaTok := a2Session(s.auth, u)
+	if w := call("GET", "/api/rules", "", aniaTok); w.Code != 200 {
+		t.Fatalf("operator could not read rules: %d", w.Code)
+	}
+	if w := call("PUT", "/api/rules", `{"items":[]}`, aniaTok); w.Code != 403 {
+		t.Fatalf("non-admin replaced rules: %d", w.Code)
+	}
+	// Admin saves the list; invalid payloads are rejected with a message.
+	if w := call("PUT", "/api/rules", `{"items":[{"name":"zła","ip_match":"fe80::/129"}]}`, tok); w.Code != 400 {
+		t.Fatalf("invalid rule accepted: %d", w.Code)
+	}
+	body := `{"items":[{"name":"eskaluj-ssh","enabled":true,"ports":[22],"set_status":"do_weryfikacji"}]}`
+	if w := call("PUT", "/api/rules", body, tok); w.Code != 200 {
+		t.Fatalf("PUT rules failed: %d %s", w.Code, w.Body.String())
+	}
+	// The backlog is re-triaged on demand.
+	if _, err := s.store.AddEscalation(ruleCase()); err != nil {
+		t.Fatal(err)
+	}
+	w := call("POST", "/api/rules/apply", "{}", tok)
+	if w.Code != 200 {
+		t.Fatalf("apply failed: %d", w.Code)
+	}
+	var res struct {
+		Triaged int `json:"triaged"`
+		Scanned int `json:"scanned"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &res)
+	if res.Triaged != 1 || res.Scanned != 1 {
+		t.Fatalf("bad apply counters: %+v", res)
+	}
+	c, _ := s.store.Get("r1")
+	if c.Status != StatusVerify {
+		t.Fatalf("backlog case not triaged: %+v", c)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }

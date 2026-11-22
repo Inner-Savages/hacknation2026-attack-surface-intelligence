@@ -51,10 +51,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("open settings: %v", err)
 	}
+	rules, err := openRules(*dataDir)
+	if err != nil {
+		log.Fatalf("open rules: %v", err)
+	}
 	srv := &server{
 		store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demoData: *demo, feed: feed,
 		operator: *operator, aiAuto: *aiAuto, aiOpDefault: *aiOperator, demoDefault: *demo,
-		auth: userAuth, settings: cfg,
+		auth: userAuth, settings: cfg, rules: rules,
 	}
 	if *demo {
 		relightDemo(store)
@@ -73,8 +77,11 @@ func main() {
 		startDemoEscalations(store, srv.demoFeedOn, srv.triageNewCase)
 	}
 	// Operator mode enabled before a restart takes over the open backlog on
-	// boot, exactly like flipping the toggle at runtime.
-	if srv.aiOperatorOn() {
+	// boot, exactly like flipping the toggle at runtime. Rule mode does the
+	// same, synchronously — the engine is instant.
+	if srv.ruleModeOn() {
+		srv.applyRulesToOpen(100)
+	} else if srv.aiOperatorOn() {
 		go srv.backfillAIOperator(10)
 	}
 

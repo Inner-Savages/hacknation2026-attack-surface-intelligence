@@ -146,6 +146,7 @@ tbody tr:hover { background: var(--panel-2); }
 .feed-kind.note { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 .feed-kind.action { background: var(--accent-soft); color: var(--accent-text); }
 .feed-kind.ai { background: var(--accent-soft); color: var(--accent-text); border: 1px dashed var(--accent); }
+.feed-kind.rule { background: var(--info-soft); color: var(--info); border: 1px dashed var(--info); }
 .feed-sensor { color: var(--muted); white-space: nowrap; }
 .feed-text { word-break: break-all; }
 
@@ -190,6 +191,7 @@ tbody tr:hover { background: var(--panel-2); }
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
+    <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
     <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
   </nav>
   <div class="spacer"></div>
@@ -496,7 +498,7 @@ async function viewAlert(id) {
           <div class="history">
             ${(d.history||[]).map(h => `
               <div class="hrow">
-                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='ai'?'green':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
+                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='ai'?'green':h.kind==='rule'?'green':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
                 <div><div>${esc(h.text)}</div><div class="hmeta">${fmtDateTime(h.at)} · ${esc(h.actor)}</div></div>
               </div>`).join('')}
           </div>
@@ -620,7 +622,7 @@ async function viewSensors() {
 function gotoSensors(p) { state.sensorPage = p; render(); }
 
 // --- live logs -------------------------------------------------------------
-const KIND_LABEL = {sensor:'SENSOR', alert:'ALERT', status:'STATUS', assign:'PRZYPISANIE', note:'NOTATKA', action:'AKCJA', ai:'AI'};
+const KIND_LABEL = {sensor:'SENSOR', alert:'ALERT', status:'STATUS', assign:'PRZYPISANIE', note:'NOTATKA', action:'AKCJA', ai:'AI', rule:'REGUŁA'};
 async function pollLogs() {
   const l = state.logs;
   if (l.paused) return;
@@ -669,6 +671,116 @@ function renderLogs() {
   l.items.forEach(e => delete e.fresh);
 }
 function viewLogs() { renderLogs(); }
+
+// --- rules engine ----------------------------------------------------------
+const splitCsv = s => String(s||'').split(',').map(x => x.trim()).filter(Boolean);
+const splitPorts = s => splitCsv(s).map(Number).filter(n => Number.isInteger(n) && n > 0 && n < 65536);
+
+async function viewRules() {
+  const app = $('#app');
+  app.innerHTML = skeleton();
+  let data;
+  try { data = await api('/api/rules'); }
+  catch (e) { app.innerHTML = `<div class="panel" style="padding:24px;margin-top:16px">Nie udało się pobrać reguł: ${esc(e.message)}</div>`; return; }
+  state.rules = data.items || [];
+  state.ruleMode = !!data.rule_mode;
+  const isAdmin = !!session.user?.admin;
+  renderRules(isAdmin);
+}
+
+function renderRules(isAdmin) {
+  const app = $('#app');
+  const rules = state.rules;
+  const on = state.ruleMode;
+  app.innerHTML = `
+    <div class="settings-grid" style="grid-template-columns:1fr">
+      <div class="panel">
+        <h4>TRYB REGUŁOWY (BEZ MODELI DECYZYJNYCH)</h4>
+        <div class="switch-row">
+          <div><b>Triaż tylko na sztywnych regułach</b><div class="desc">Gdy modele decyzyjne (analiza Bayesa, drzewo decyzyjne, backendy basal/laya/kev, operator AI) trawią zbyt długo, włącz tryb regułowy: każda nowa eskalacja jest oceniana natychmiast względem listy reguł poniżej, offline i bez wywołań modeli. Decyzje reguł są audytowane z aktorem „silnik reguł · &lt;nazwa&gt;". Odcięcie hosta reguła zawsze tylko uzbraja — potwierdza człowiek.</div></div>
+          ${isAdmin ? `<button class="toggle ${on?'on':''}" onclick="saveConfig({rule_mode: ${!on}}).then(viewRules)"></button>`
+                    : `<span class="pill"><span class="dot ${on?'green':'gray'}"></span> ${on?'włączony':'wyłączony'}</span>`}
+        </div>
+        ${on ? '<p class="fineprint" style="margin-top:8px;color:var(--warn)">⚠ Tryb regułowy jest aktywny — analizy AI i operator AI są pomijane przy triażu nowych eskalacji.</p>' : ''}
+      </div>
+      <div class="panel">
+        <h4>REGUŁY TRIAŻU · pierwsza pasująca wygrywa (${rules.length})</h4>
+        ${rules.length === 0 ? '<p class="muted" style="font-size:13px;margin:8px 0">Brak reguł. Dodaj pierwszą regułę poniżej — warunki puste pasują do wszystkiego.</p>' : ''}
+        ${rules.map((r, i) => `
+          <div style="border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:10px 0;${r.enabled?'':'opacity:.55'}">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+              <span class="mono muted">#${i+1}</span>
+              <input style="flex:1;font-weight:600" value="${esc(r.name)}" ${isAdmin?'':'disabled'} placeholder="Nazwa reguły" oninput="state.rules[${i}].name=this.value">
+              ${isAdmin ? `
+                <button class="btn" style="padding:4px 10px" ${i===0?'disabled':''} onclick="moveRule(${i},-1)" title="Wyżej">↑</button>
+                <button class="btn" style="padding:4px 10px" ${i===rules.length-1?'disabled':''} onclick="moveRule(${i},1)" title="Niżej">↓</button>
+                <button class="btn danger" style="padding:4px 10px" onclick="delRule(${i})" title="Usuń">✕</button>
+                <button class="toggle ${r.enabled?'on':''}" title="Włącz/wyłącz regułę" onclick="state.rules[${i}].enabled=${!r.enabled};renderRules(${isAdmin})"></button>` : ''}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;font-size:12px">
+              <label class="form-row" style="margin:0"><label>Typy zdarzeń (po przecinku)</label><input ${isAdmin?'':'disabled'} value="${esc((r.event_types||[]).join(', '))}" placeholder="np. service_new, host_silent" oninput="state.rules[${i}].event_types=splitCsv(this.value)"></label>
+              <label class="form-row" style="margin:0"><label>Porty (po przecinku)</label><input ${isAdmin?'':'disabled'} value="${esc((r.ports||[]).join(', '))}" placeholder="np. 22, 3389" oninput="state.rules[${i}].ports=splitPorts(this.value)"></label>
+              <label class="form-row" style="margin:0"><label>Host źródłowy / CIDR</label><input ${isAdmin?'':'disabled'} value="${esc(r.ip_match||'')}" placeholder="np. 10.0.0.0/8" oninput="state.rules[${i}].ip_match=this.value.trim()"></label>
+              <label class="form-row" style="margin:0"><label>Sensor</label><input ${isAdmin?'':'disabled'} value="${esc(r.sensor_id||'')}" placeholder="dowolny" oninput="state.rules[${i}].sensor_id=this.value.trim()"></label>
+              <label class="form-row" style="margin:0"><label>Powody (po przecinku)</label><input ${isAdmin?'':'disabled'} value="${esc((r.reasons||[]).join(', '))}" placeholder="dowolny" oninput="state.rules[${i}].reasons=splitCsv(this.value)"></label>
+              <label class="form-row" style="margin:0"><label>Min. ocena (0–1)</label><input ${isAdmin?'':'disabled'} type="number" min="0" max="1" step="0.05" value="${r.min_score ?? ''}" placeholder="brak" oninput="state.rules[${i}].min_score=this.value===''?null:Number(this.value)"></label>
+              <label class="form-row" style="margin:0"><label>Nierozstrzygnięte</label>
+                <select ${isAdmin?'':'disabled'} onchange="state.rules[${i}].unresolved=this.value===''?null:this.value==='true'">
+                  <option value="" ${r.unresolved==null?'selected':''}>dowolne</option>
+                  <option value="true" ${r.unresolved===true?'selected':''}>tak</option>
+                  <option value="false" ${r.unresolved===false?'selected':''}>nie</option>
+                </select></label>
+              <label class="form-row" style="margin:0"><label>Ustaw status</label>
+                <select ${isAdmin?'':'disabled'} onchange="state.rules[${i}].set_status=this.value">
+                  ${['', 'nowe', 'do_weryfikacji', 'potwierdzony', 'falszywy_alarm', 'zamkniety'].map(s => `<option value="${s}" ${(r.set_status||'')===s?'selected':''}>${s===''?'— bez zmian —':(STATUS_BTN[s]||s)}</option>`).join('')}
+                </select></label>
+              <label class="form-row" style="margin:0"><label>Akcja</label>
+                <select ${isAdmin?'':'disabled'} onchange="state.rules[${i}].action=this.value">
+                  ${[['','— brak —'],['observe','Wzmocnij obserwację'],['scan','Zleć aktywny skan'],['reanalyze','Ponów analizę modeli'],['isolate','Odcięcie (tylko uzbraja)']].map(([v,l]) => `<option value="${v}" ${(r.action||'')===v?'selected':''}>${l}</option>`).join('')}
+                </select></label>
+              <label class="form-row" style="margin:0"><label>Przypisz do</label><input ${isAdmin?'':'disabled'} value="${esc(r.assign||'')}" placeholder="np. Janek Baumgart" oninput="state.rules[${i}].assign=this.value.trim()"></label>
+              <label class="form-row" style="margin:0;grid-column:1/-1"><label>Notatka (uzasadnienie, trafia do sprawy)</label><input ${isAdmin?'':'disabled'} value="${esc(r.note||'')}" placeholder="np. port 3389 spoza allowlisty — eskaluj do weryfikacji" oninput="state.rules[${i}].note=this.value"></label>
+            </div>
+          </div>`).join('')}
+        ${isAdmin ? `
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+            <button class="btn" onclick="addRule()">＋ Dodaj regułę</button>
+            <button class="btn primary" onclick="saveRules()">Zapisz reguły</button>
+            <button class="btn" onclick="applyRulesNow(this)" ${on?'':'disabled'} title="Dostępne w trybie regułowym">Zastosuj do otwartych spraw</button>
+          </div>
+          <p class="fineprint" style="margin-top:10px">Zapis podmienia całą listę atomowo i trafia do dziennika live. Reguły są przechowywane trwale w rules.json.</p>` : ''}
+      </div>
+    </div>`;
+}
+function addRule() {
+  state.rules.push({id:'', name:'Nowa reguła', enabled:true, event_types:[], ports:[], ip_match:'', sensor_id:'', reasons:[], min_score:null, unresolved:null, set_status:'do_weryfikacji', action:'', assign:'', note:''});
+  renderRules(true);
+}
+function moveRule(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= state.rules.length) return;
+  [state.rules[i], state.rules[j]] = [state.rules[j], state.rules[i]];
+  renderRules(true);
+}
+function delRule(i) {
+  if (!confirm(`Usunąć regułę „${state.rules[i].name}”?`)) return;
+  state.rules.splice(i, 1);
+  renderRules(true);
+}
+async function saveRules() {
+  try {
+    await api('/api/rules', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({items: state.rules})});
+    viewRules();
+  } catch (e) { alert('Nie udało się zapisać reguł: ' + e.message); }
+}
+async function applyRulesNow(btn) {
+  btn.disabled = true;
+  try {
+    const r = await post('/api/rules/apply', {});
+    alert(`Silnik reguł: ${r.triaged} dopasowanych z ${r.scanned} otwartych spraw.`);
+    viewRules();
+  } catch (e) { alert('Nie udało się zastosować reguł: ' + e.message); btn.disabled = false; }
+}
 
 // --- settings --------------------------------------------------------------
 async function viewSettings() {
@@ -769,17 +881,19 @@ async function render() {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
     h.startsWith('#/sensory') ? t.dataset.nav === 'sensory'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
+    : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
   if (h.startsWith('#/sensory')) return viewSensors();
   if (h.startsWith('#/logi')) return viewLogs();
+  if (h.startsWith('#/reguly')) return viewRules();
   if (h.startsWith('#/ustawienia')) return viewSettings();
   if (h.startsWith('#/alerta/')) return viewAlert(decodeURIComponent(h.slice(9)));
   return viewAlerts();
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {

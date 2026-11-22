@@ -77,6 +77,7 @@ type server struct {
 
 	auth     *auth
 	settings *settings
+	rules    *ruleStore
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -96,6 +97,15 @@ func (s *server) aiOperatorOn() bool {
 		return *snap.AIOperator
 	}
 	return s.aiOpDefault
+}
+
+// ruleModeOn reports whether the deterministic rule engine replaces the
+// model stack for triage. Default is off — models are the primary path.
+func (s *server) ruleModeOn() bool {
+	if snap := s.settings.snapshot(); snap.RuleMode != nil {
+		return *snap.RuleMode
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, code int, v interface{}) {
@@ -124,6 +134,9 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/sensors", s.needAuth(http.HandlerFunc(s.sensors)))
 	mux.Handle("GET /api/logs", s.needAuth(http.HandlerFunc(s.logs)))
 	mux.Handle("GET /api/ai/status", s.needAuth(http.HandlerFunc(s.aiStatus)))
+	mux.Handle("GET /api/rules", s.needAuth(http.HandlerFunc(s.listRules)))
+	mux.Handle("PUT /api/rules", s.needAdmin(http.HandlerFunc(s.putRules)))
+	mux.Handle("POST /api/rules/apply", s.needAdmin(http.HandlerFunc(s.applyRulesHandler)))
 	mux.Handle("GET /api/config", s.needAdmin(http.HandlerFunc(s.getConfig)))
 	mux.Handle("POST /api/config", s.needAdmin(http.HandlerFunc(s.setConfig)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
@@ -295,15 +308,19 @@ func (s *server) intake(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// triageNewCase runs the configured AI over a freshly created case. In
-// operator mode the LLM acts autonomously (audited like a human); otherwise
-// auto-analysis only annotates the case for the human operator.
+// triageNewCase routes a freshly created case to the active triage path.
+// Rule mode wins: when the models digest too slowly, the operator can fall
+// back to hard rules and the case never waits on any model at all.
 func (s *server) triageNewCase(sensorID, eventID string) {
-	if s.aiClient() == nil {
-		return
-	}
 	c, ok := s.store.Get(eventID)
 	if !ok {
+		return
+	}
+	if s.ruleModeOn() {
+		s.applyRules(c)
+		return
+	}
+	if s.aiClient() == nil {
 		return
 	}
 	switch {
@@ -390,15 +407,52 @@ func (s *server) logs(w http.ResponseWriter, r *http.Request) {
 func (s *server) aiStatus(w http.ResponseWriter, r *http.Request) {
 	client := s.aiClient()
 	out := map[string]interface{}{
-		"enabled": client != nil, "auto": s.aiAuto && client != nil,
-		"operator": s.aiOperatorOn() && client != nil,
-		"model":    "", "base_url": "",
+		"enabled": client != nil, "auto": s.aiAuto && client != nil && !s.ruleModeOn(),
+		"operator":  s.aiOperatorOn() && client != nil && !s.ruleModeOn(),
+		"rule_mode": s.ruleModeOn(),
+		"model":     "", "base_url": "",
 	}
 	if client != nil {
 		out["model"] = client.modelName()
 		out["base_url"] = client.baseName()
 	}
 	writeJSON(w, 200, out)
+}
+
+// listRules returns the ordered rule list for the rules tab.
+func (s *server) listRules(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]interface{}{"items": s.rules.list(), "rule_mode": s.ruleModeOn()})
+}
+
+// putRules replaces the whole ordered rule list (admin only). The change is
+// mirrored to the live feed like any other configuration change.
+func (s *server) putRules(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Items []*Rule `json:"items"`
+	}
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1*1024*1024))
+	if err != nil || json.Unmarshal(b, &body) != nil {
+		http.Error(w, "invalid body", 400)
+		return
+	}
+	if err := s.rules.replace(body.Items); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	who := "operator"
+	if sess := s.auth.who(r); sess != nil {
+		who = sess.Name
+	}
+	s.feed.Append("rule", "", fmt.Sprintf("%s: zapisał(a) konfigurację reguł (%d pozycji)", who, len(body.Items)), nil)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// applyRulesHandler re-runs the deterministic engine over the open backlog
+// on demand — useful right after editing the rule list.
+func (s *server) applyRulesHandler(w http.ResponseWriter, r *http.Request) {
+	triaged, scanned := s.applyRulesToOpen(100)
+	s.feed.Append("rule", "", fmt.Sprintf("Silnik reguł przetworzył zaległość: %d dopasowanych z %d otwartych spraw", triaged, scanned), nil)
+	writeJSON(w, 200, map[string]interface{}{"triaged": triaged, "scanned": scanned})
 }
 
 // getConfig returns the persisted runtime configuration. The AI API key is
@@ -409,6 +463,7 @@ func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"demo_feed":     s.demoFeedOn(),
 		"demo_feed_src": srcOf(snap.DemoFeed),
 		"ai_operator":   s.aiOperatorOn(),
+		"rule_mode":     s.ruleModeOn(),
 		"ai_base_url":   snap.AIBaseURL,
 		"ai_model":      snap.AIModel,
 		"ai_api_key_set": snap.AIAPIKey != "" || firstNonEmpty(snap.AIAPIKey, "") != "" ||
@@ -469,6 +524,13 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 			changes = append(changes, "wyłączono autonomicznego operatora AI")
 		}
 	}
+	if p.RuleMode != nil && (before.RuleMode == nil || *before.RuleMode != *p.RuleMode) {
+		if *p.RuleMode {
+			changes = append(changes, "włączono tryb regułowy — modele decyzyjne (Bayes, drzewo decyzyjne, basal/laya/kev, operator AI) są pomijane przy triażu")
+		} else {
+			changes = append(changes, "wyłączono tryb regułowy — triaż wraca do modeli decyzyjnych")
+		}
+	}
 	if p.AIBaseURL != nil && *p.AIBaseURL != before.AIBaseURL {
 		changes = append(changes, "zmieniono adres API AI")
 	}
@@ -487,6 +549,13 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 	// Enabling operator mode takes over the open backlog right away.
 	if p.AIOperator != nil && *p.AIOperator && !wasAIOperator {
 		go s.backfillAIOperator(10)
+	}
+	// Enabling rule mode triages the open backlog instantly, in-band — the
+	// deterministic engine needs no provider round-trips.
+	if p.RuleMode != nil && *p.RuleMode {
+		if triaged, scanned := s.applyRulesToOpen(100); scanned > 0 {
+			s.feed.Append("rule", "", fmt.Sprintf("Silnik reguł przetworzył zaległość: %d dopasowanych z %d otwartych spraw", triaged, scanned), nil)
+		}
 	}
 	writeJSON(w, 200, map[string]string{"ok": "true"})
 }

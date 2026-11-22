@@ -20,6 +20,10 @@ type settings struct {
 	// AIOperator lets the configured LLM act as an autonomous operator
 	// (statuses, notes, non-destructive actions) with full audit visibility.
 	AIOperator *bool `json:"ai_operator,omitempty"`
+	// RuleMode replaces the model stack (Bayesian stage, decision tree,
+	// basal/laya/kev backends, LLM operator) with the deterministic rule
+	// engine for when the models digest too slowly.
+	RuleMode *bool `json:"rule_mode,omitempty"`
 	// AI provider overrides; empty strings mean "fall back to environment".
 	AIBaseURL string `json:"ai_base_url,omitempty"`
 	AIModel   string `json:"ai_model,omitempty"`
@@ -59,6 +63,7 @@ func (s *settings) saveLocked() error {
 type configPatch struct {
 	DemoFeed   *bool   `json:"demo_feed"`
 	AIOperator *bool   `json:"ai_operator"`
+	RuleMode   *bool   `json:"rule_mode"`
 	AIBaseURL  *string `json:"ai_base_url"`
 	AIModel    *string `json:"ai_model"`
 	AIAPIKey   *string `json:"ai_api_key"`
@@ -73,6 +78,9 @@ func (s *settings) update(p configPatch) error {
 	}
 	if p.AIOperator != nil {
 		s.AIOperator = p.AIOperator
+	}
+	if p.RuleMode != nil {
+		s.RuleMode = p.RuleMode
 	}
 	if p.AIBaseURL != nil {
 		s.AIBaseURL = *p.AIBaseURL
@@ -90,7 +98,7 @@ func (s *settings) snapshot() settings {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return settings{
-		DemoFeed: s.DemoFeed, AIOperator: s.AIOperator,
+		DemoFeed: s.DemoFeed, AIOperator: s.AIOperator, RuleMode: s.RuleMode,
 		AIBaseURL: s.AIBaseURL, AIModel: s.AIModel, AIAPIKey: s.AIAPIKey,
 	}
 }
