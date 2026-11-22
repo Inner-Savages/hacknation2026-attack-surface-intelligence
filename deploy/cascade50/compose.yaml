@@ -124,7 +124,7 @@ services:
     volumes:
       - ../../deploy/cascade50:/work/deploy/cascade50:ro
       - edge-data:/data
-    command: [serve, -listen, "127.0.0.1:8098", -trigger-url, "http://127.0.0.1:8099/events", -outbox-dir, /data/serve-outbox]
+    command: [serve, -listen, "127.0.0.1:8098", -trigger-url, "http://127.0.0.1:8099/events", -outbox-dir, /data/serve-outbox, -state-file, /data/serve-state.json]
 volumes:
   central-data:
   edge-data:

@@ -84,9 +84,20 @@ sensor's `-webhook` at `http://127.0.0.1:8098/events` to use the gate, or at the
 trigger to skip it.
 
 - Events are scored in arrival order (the feature extractor keeps per-host state).
+- **Bounded memory at fleet scale.** The extractor's per-host state is kept on a
+  TTL (`-host-ttl`, default 24h in `serve`): a host silent for longer than the
+  window — measured in stream time, so replays stay deterministic — is evicted
+  and relearned from scratch when it returns. A sensor watching 10k+ IPs stays
+  flat instead of growing without limit. Per-host port sets are capped too.
+  `/healthz` reports `hosts_tracked` and `hosts_evicted`.
+- **Restarts keep the baseline.** The host table is checkpointed to
+  `-state-file` every `-state-save-interval` (default 5 min) and once more on
+  shutdown, then restored on boot (atomically, via tmp+rename; a corrupt file
+  is ignored, never fatal). Hosts already stale at save time are skipped on
+  load, exactly as the TTL sweep would have dropped them.
 - Escalations are forwarded as the original event plus `score`, `reason` and
-  `event_id`; they pass through the durable outbox and are deleted only after the
-  trigger answers 2xx, so a trigger restart loses nothing.
+  `event_id`; they pass through the durable outbox and are deleted only after
+  the trigger answers 2xx, so a trigger restart loses nothing.
 - `host_silent`, `service_silent` and `service_closed` are always forwarded
   (`reason: verification_passthrough`): a model must not hide a service that
   disappeared.
