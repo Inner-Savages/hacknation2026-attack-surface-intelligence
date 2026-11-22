@@ -3,12 +3,12 @@
 [![CI](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml/badge.svg?branch=main)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Inner-Savages/silence-on-the-wire/badges/coverage.json)](https://github.com/Inner-Savages/silence-on-the-wire/actions/workflows/images.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Inner-Savages/silence-on-the-wire)](go.mod)
-[![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20scanner%20%7C%20traffic-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
+[![Images](https://img.shields.io/badge/ghcr.io-sensor%20%7C%20scanner%20%7C%20trigger%20%7C%20traffic-2496ED?logo=docker&logoColor=white)](https://github.com/orgs/Inner-Savages/packages?repo_name=silence-on-the-wire)
 [![Platforms](https://img.shields.io/badge/platform-linux%2Famd64%20%7C%20linux%2Farm64-lightgrey)](Dockerfile)
 [![HackNation 2026](https://img.shields.io/badge/HackNation-2026-red)](https://hacknation.pl)
 
-A passive network sensor that notices changes in your network and (soon) wakes up an
-active scanner to take a closer look. Named after Michał Zalewski's book on passive
+A passive network sensor that notices changes in your network and wakes up an active
+scanner to take a closer look. Named after Michał Zalewski's book on passive
 reconnaissance.
 
 Built during [HackNation 2026](https://hacknation.pl) for the *Attack Surface
@@ -24,9 +24,11 @@ service goes quiet, it emits an event that can trigger a targeted active scan in
 waiting for the next full sweep.
 
 ```
-network traffic ──► [ passive sensor ] ── change events ──► [ active scanner ]
-                     baseline: host,      (wiring: in progress)  nmap + HTTP prober
-                     port, banner                                + signatures, diff
+network traffic ──► [ passive sensor ] ── webhook ──► [ trigger ] ──► [ scan pipeline ]
+                     baseline: host,                   debounce,       nmap + HTTP prober
+                     port, banner                      cooldown,       + signatures
+                                                       quiet window          │
+                                         findings.jsonl ◄── verdict + diff ◄─┘
 ```
 
 ## What works today
@@ -74,6 +76,15 @@ network traffic ──► [ passive sensor ] ── change events ──► [ ac
   "staging" or "admin panel". The cost is that we don't get thousands of signatures for
   free. The natural next step is an importer that translates Wappalyzer technologies and
   nuclei favicon hashes into this format, without adopting their engines.
+- **Trigger** (`cmd/trigger`): receives sensor events (`sensor -webhook`) and runs
+  targeted scans through the same pipeline: new or changed services and hosts are
+  scanned, silent or closed ones verified. Each scan becomes a finding with a verdict
+  (`scanned`, `still-open`, `gone-confirmed`, `still-up`, `down-confirmed`, `error`),
+  services, technologies and the diff against the previous scan of that target. Only
+  allow-listed addresses are scanned; events about the scanner's own addresses are
+  ignored; bursts are debounced; a quiet window drops events caused by the scan itself;
+  per-target cooldowns, a 30-minute pause on re-verifying targets found alive, a global
+  rate limit and a pending-job cap keep the active side bounded.
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
@@ -110,6 +121,18 @@ Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `
 `-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
 `-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`).
 
+### Sensor + trigger
+
+```bash
+./bin/trigger -allow 10.0.0.0/16 -state trigger-state      # listens on 127.0.0.1:8099
+./bin/sensor -i eth0 -webhook http://127.0.0.1:8099/events
+tail -f trigger-state/findings.jsonl
+```
+
+Set the same `SOTW_WEBHOOK_TOKEN` for both to require a bearer token. `GET /healthz`
+shows pending and running scans and why events were dropped. Policy flags: `-debounce`,
+`-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`.
+
 ### Docker images
 
 ```bash
@@ -122,20 +145,20 @@ docker run --rm ghcr.io/inner-savages/silence-on-the-wire/traffic \
 ```
 
 Images are built by GitHub Actions for `linux/amd64` and `linux/arm64`. All of them run
-as an unprivileged user; the sensor needs only `CAP_NET_RAW`, the scanner none (connect
-scan). `--user $(id -u):$(id -g)` makes result files belong to you (they are created
+as an unprivileged user; the sensor needs only `CAP_NET_RAW`, the scanner and the trigger
+none (connect scan). `--user $(id -u):$(id -g)` makes result files belong to you (they are created
 with mode 0600). `make images` builds them locally under the same names.
 
 ### On the CBI AGH lab templates
 
 The organizers' templates are included unchanged in `lab/agh/upstream/`. The overlay
-adds traffic, a flapping host and the sensor:
+adds traffic, a flapping host, the sensor and the trigger:
 
 ```bash
 docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
                -f lab/agh/traffic-custom-network.yml up -d
 docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
-               -f lab/agh/traffic-custom-network.yml logs -f sensor
+               -f lab/agh/traffic-custom-network.yml logs -f sensor trigger
 ```
 
 `lab/agh/scenario.sh` runs a scripted scenario (banner change, service stop/start, new
@@ -169,8 +192,9 @@ make test     # go vet + go test (needs libpcap-dev)
 
 Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, baseline),
 `internal/scan` (targets, chunks, nmap), `internal/probe` (HTTP/TLS), `internal/fingerprint`
-(signatures), `internal/diff`, `internal/result` (shared model), `internal/traffic`,
-`lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `traffic`).
+(signatures), `internal/pipeline` (scan + probe + fingerprint), `internal/diff`,
+`internal/trigger` (policy, service), `internal/result` (shared model), `internal/traffic`,
+`lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`).
 
 ## Blog
 
