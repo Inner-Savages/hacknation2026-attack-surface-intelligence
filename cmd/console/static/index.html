@@ -191,6 +191,7 @@ tbody tr:hover { background: var(--panel-2); }
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
+    <button class="tab" data-nav="cele" onclick="go('#/cele')">Cele i import</button>
     <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
     <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
   </nav>
@@ -911,17 +912,144 @@ async function saveAiConfig() {
   } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
 }
 
+
+// --- targets, import, overrides ---------------------------------------------
+const inv = {q:'', status:'', entries:[], edit:null, msg:''};
+const STATUS_PL = {nowe:'nowe', do_weryfikacji:'do weryfikacji', potwierdzony:'potwierdzony', falszywy_alarm:'fałszywy alarm', zamkniety:'zamknięty'};
+async function viewInventory() {
+  const app = $('#app');
+  const params = new URLSearchParams();
+  if (inv.q) params.set('q', inv.q);
+  if (inv.status) params.set('status', inv.status);
+  const data = await api('/api/inventory?' + params);
+  inv.entries = data.entries;
+  const ds = data.diff_summary;
+  app.innerHTML = `
+    <div class="panel" style="padding:16px;margin-bottom:12px">
+      <h3 style="margin:0 0 8px">Dodaj cel ręcznie</h3>
+      <div class="filters">
+        <input id="tgt-val" placeholder="IP, CIDR lub domena" style="min-width:260px">
+        <input id="tgt-tags" placeholder="tagi (po przecinku)">
+        <button class="btn primary" onclick="addTarget()">Dodaj</button>
+      </div>
+      <h3 style="margin:16px 0 8px">Import pliku</h3>
+      <div class="filters">
+        <select id="imp-kind"><option value="targets">Lista celów (txt / CSV / JSON)</option><option value="scan">Wynik skanu (JSON / CSV)</option></select>
+        <input id="imp-tags" placeholder="tagi dla celów (opcjonalnie)">
+        <input id="imp-file" type="file" accept=".txt,.csv,.json">
+        <button class="btn primary" onclick="importFile()">Importuj</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Limit 5 MiB. Duplikaty są pomijane; wynik skanu jest porównywany z poprzednim (diff). Edycje użytkownika zostają po kolejnym skanie.</div>
+      <pre id="imp-msg" class="mono" style="white-space:pre-wrap;margin:8px 0 0">${esc(inv.msg)}</pre>
+    </div>
+    <div class="cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="panel card"><div class="label">POZYCJE</div><div class="value">${data.total}</div></div>
+      <div class="panel card"><div class="label">CELE</div><div class="value">${data.targets}</div></div>
+      <div class="panel card"><div class="label">NADPISANIA</div><div class="value">${data.overrides}</div></div>
+      <div class="panel card"><div class="label">OSTATNI DIFF</div><div class="sub">${ds ? `+${ds.new_hosts} hostów, +${ds.new_services} usług, ${ds.changed_services} zmian, −${ds.gone_services} usług` : 'brak poprzedniego skanu'}</div></div>
+    </div>
+    <div class="filters">
+      <input type="search" placeholder="Szukaj…" value="${esc(inv.q)}" oninput="inv.q=this.value" onchange="render()">
+      <select onchange="inv.status=this.value;render()">
+        <option value="">Wszystkie statusy</option>
+        ${Object.entries(STATUS_PL).map(([k,v]) => `<option value="${k}" ${inv.status===k?'selected':''}>${v}</option>`).join('')}
+      </select>
+    </div>
+    <div class="panel">
+      ${data.total === 0 ? '<div class="muted" style="padding:24px">Brak pozycji — dodaj cel lub zaimportuj wynik skanu.</div>' : `
+      <table>
+        <thead><tr><th>ADRES</th><th>TYTUŁ</th><th>TECHNOLOGIA</th><th>TAGI</th><th>STATUS</th><th></th></tr></thead>
+        <tbody>${data.entries.map((e, i) => `
+          <tr>
+            <td class="mono">${esc(e.address)}${e.port ? ':' + e.port + '/' + esc(e.proto) : ''}</td>
+            <td>${esc(e.effective.title)}</td>
+            <td>${esc(e.effective.technology)}</td>
+            <td>${e.effective.tags.map(t => `<span class="badge nowe">${esc(t)}</span>`).join(' ')}</td>
+            <td>${esc(STATUS_PL[e.effective.status] || e.effective.status)}${e.override ? ' <span class="badge potwierdzony" title="nadpisane przez użytkownika">edytowane</span>' : ''}</td>
+            <td><button class="btn" onclick="editEntry(${i})">Edytuj</button></td>
+          </tr>
+          ${inv.edit === i ? `<tr><td colspan="6">${entryEditor(e)}</td></tr>` : ''}`).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+function entryEditor(e) {
+  const o = e.override || {};
+  const row = (label, orig, field, val) => `<tr><td>${label}</td><td class="muted">${esc(orig)}</td><td><input id="ov-${field}" value="${esc(val)}" style="width:100%"></td></tr>`;
+  return `<table><thead><tr><th></th><th>ORYGINAŁ (skan/import)</th><th>NADPISANIE</th></tr></thead><tbody>
+    ${row('Tytuł', e.original.title, 'title', e.effective.title)}
+    ${row('Technologia', e.original.technology, 'technology', e.effective.technology)}
+    ${row('Tagi', e.original.tags.join(', '), 'tags', e.effective.tags.join(', '))}
+    ${row('Notatka', e.original.note, 'note', e.effective.note || '')}
+    <tr><td>Status</td><td class="muted">${esc(STATUS_PL[e.original.status])}</td><td><select id="ov-status">${Object.entries(STATUS_PL).map(([k,v]) => `<option value="${k}" ${e.effective.status===k?'selected':''}>${v}</option>`).join('')}</select></td></tr>
+    </tbody></table>
+    <div class="filters" style="margin-top:8px">
+      <button class="btn primary" onclick="saveOverride()">Zapisz nadpisanie</button>
+      ${e.override ? '<button class="btn danger" onclick="resetOverride()">Przywróć oryginał</button>' : ''}
+      <button class="btn" onclick="inv.edit=null;render()">Anuluj</button>
+    </div>`;
+}
+function editEntry(i) { inv.edit = inv.edit === i ? null : i; render(); }
+async function saveOverride() {
+  const e = inv.entries[inv.edit];
+  const body = {};
+  const orig = e.original;
+  const v = id => $('#ov-' + id).value;
+  // Only fields that differ from the original become overrides.
+  if (v('title') !== orig.title) body.title = v('title');
+  if (v('technology') !== orig.technology) body.technology = v('technology');
+  const tags = v('tags').split(',').map(t => t.trim()).filter(Boolean);
+  if (tags.join(',') !== orig.tags.join(',')) body.tags = tags;
+  if (v('note') !== (orig.note || '')) body.note = v('note');
+  if (v('status') !== orig.status) body.status = v('status');
+  if (!Object.keys(body).length) { alert('Brak zmian względem oryginału.'); return; }
+  try {
+    await api('/api/overrides/' + encodeURIComponent(e.key), {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    inv.edit = null; render();
+  } catch (err) { alert('Nie udało się zapisać: ' + err.message); }
+}
+async function resetOverride() {
+  const e = inv.entries[inv.edit];
+  try { await api('/api/overrides/' + encodeURIComponent(e.key), {method:'DELETE'}); inv.edit = null; render(); }
+  catch (err) { alert(err.message); }
+}
+async function addTarget() {
+  try {
+    const r = await post('/api/targets', {value: $('#tgt-val').value, tags: $('#tgt-tags').value.split(',')});
+    inv.msg = (r.added ? 'Dodano: ' : 'Już istnieje (tagi scalone): ') + r.value;
+  } catch (e) { inv.msg = 'Błąd: ' + e.message; }
+  render();
+}
+async function importFile() {
+  const f = $('#imp-file').files[0];
+  if (!f) { inv.msg = 'Wybierz plik.'; render(); return; }
+  const kind = $('#imp-kind').value;
+  const fd = new FormData(); fd.append('file', f);
+  const q = new URLSearchParams({kind});
+  const tags = $('#imp-tags').value.trim();
+  if (tags) q.set('tags', tags);
+  try {
+    const r = await api('/api/import?' + q, {method:'POST', body: fd});
+    inv.msg = kind === 'scan'
+      ? `Skan: ${r.hosts} hostów, ${r.services} usług.` + (r.diff ? ` Diff: +${r.diff.summary.new_services} usług, ${r.diff.summary.changed_services} zmian.` : ' (pierwszy skan)') + (r.problems?.length ? '\nUwagi: ' + r.problems.join('; ') : '')
+      : `Cele: dodano ${r.added}, duplikatów ${r.duplicates}, odrzucono ${r.rejected}.` + (r.problems?.length ? '\n' + r.problems.join('\n') : '');
+  } catch (e) { inv.msg = 'Błąd importu: ' + e.message; }
+  render();
+}
+
 // --- router ----------------------------------------------------------------
 async function render() {
   if (!session.user) return; // auth screen is up
   const h = location.hash || '#/alerty';
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
     h.startsWith('#/sensory') ? t.dataset.nav === 'sensory'
+    : h.startsWith('#/cele') ? t.dataset.nav === 'cele'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
     : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
   if (h.startsWith('#/sensory')) return viewSensors();
+  if (h.startsWith('#/cele')) return viewInventory();
   if (h.startsWith('#/logi')) return viewLogs();
   if (h.startsWith('#/reguly')) return viewRules();
   if (h.startsWith('#/ustawienia')) return viewSettings();
@@ -930,7 +1058,7 @@ async function render() {
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/cele')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {

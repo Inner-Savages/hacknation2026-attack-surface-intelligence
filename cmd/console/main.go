@@ -67,6 +67,9 @@ func main() {
 		log.Fatalf("open host registry: %v", err)
 	}
 	srv.gt = gt
+	if srv.inv, err = openInventory(*dataDir); err != nil {
+		log.Fatalf("open inventory: %v", err)
+	}
 	go func() {
 		for range time.Tick(time.Minute) {
 			gt.tick()
