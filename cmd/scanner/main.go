@@ -13,7 +13,6 @@ import (
 	"flag"
 	"io"
 	"log"
-	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,7 +20,7 @@ import (
 	"time"
 
 	"github.com/Inner-Savages/silence-on-the-wire/internal/fingerprint"
-	"github.com/Inner-Savages/silence-on-the-wire/internal/probe"
+	"github.com/Inner-Savages/silence-on-the-wire/internal/pipeline"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/scan"
 )
@@ -55,8 +54,6 @@ func main() {
 		sigFiles    = flag.String("signatures", "", "extra signature YAML files (comma separated)")
 	)
 	flag.Parse()
-	log.SetFlags(log.Ltime)
-	log.SetPrefix("scanner: ")
 
 	var targets scan.Targets
 	if err := targets.AddList(*targetList); err != nil {
@@ -77,37 +74,15 @@ func main() {
 		log.Fatal("no targets: use -t or -f")
 	}
 	if *allow != "" {
-		var prefixes []netip.Prefix
-		for _, s := range strings.Split(*allow, ",") {
-			p, err := netip.ParsePrefix(strings.TrimSpace(s))
-			if err != nil {
-				log.Fatalf("-allow: %v", err)
-			}
-			prefixes = append(prefixes, p)
+		prefixes, err := scan.ParseAllow(*allow)
+		if err != nil {
+			log.Fatal(err)
 		}
 		if err := targets.CheckAllowed(prefixes); err != nil {
 			log.Fatal(err)
 		}
 	}
 
-	s := scan.Scanner{
-		Options: scan.Options{
-			Ports: *ports, TopPorts: *topPorts, SYN: *syn, SkipDiscovery: *skipPing,
-			MaxRate: *maxRate, VersionIntensity: *intensity, HostTimeout: *hostTimeout,
-		},
-		ChunkSize: *chunkSize,
-		Parallel:  *parallel,
-		Progress: func(done, total int, c result.Chunk) {
-			status := "ok"
-			if c.Error != "" {
-				status = "error: " + c.Error
-			}
-			log.Printf("chunk %d/%d: %d targets, %d up, %v, %s", done, total, c.Targets, c.HostsUp, time.Duration(c.Duration).Round(time.Millisecond), status)
-		},
-	}
-	if err := s.Options.Validate(); err != nil {
-		log.Fatal(err)
-	}
 	// Load signatures before scanning so a broken custom file fails fast.
 	var extra []string
 	for _, f := range strings.Split(*sigFiles, ",") {
@@ -119,32 +94,44 @@ func main() {
 	if err != nil {
 		log.Fatalf("signatures: %v", err)
 	}
+	cfg := pipeline.Config{
+		Scanner: scan.Scanner{
+			Options: scan.Options{
+				Ports: *ports, TopPorts: *topPorts, SYN: *syn, SkipDiscovery: *skipPing,
+				MaxRate: *maxRate, VersionIntensity: *intensity, HostTimeout: *hostTimeout,
+			},
+			ChunkSize: *chunkSize,
+			Parallel:  *parallel,
+			Progress: func(done, total int, c result.Chunk) {
+				status := "ok"
+				if c.Error != "" {
+					status = "error: " + c.Error
+				}
+				log.Printf("chunk %d/%d: %d targets, %d up, %v, %s", done, total, c.Targets, c.HostsUp, time.Duration(c.Duration).Round(time.Millisecond), status)
+			},
+		},
+		SkipProbe:            !*doProbe,
+		ProbeParallel:        *probePar,
+		ProbeTimeout:         *probeTO,
+		SkipFingerprint:      !*doFP,
+		SkipFingerprintPaths: !*fpPaths,
+		Engine:               engine,
+		Logf:                 log.Printf,
+	}
+	if err := cfg.Scanner.Options.Validate(); err != nil {
+		log.Fatal(err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("%d targets in chunks of %d, %d in parallel: nmap %s", targets.Len(), *chunkSize, *parallel, strings.Join(s.Options.Args(), " "))
-	res, err := s.Scan(ctx, &targets)
+	log.Printf("%d targets in chunks of %d, %d in parallel: nmap %s", targets.Len(), *chunkSize, *parallel, strings.Join(cfg.Scanner.Options.Args(), " "))
+	res, err := cfg.Run(ctx, &targets)
 	if res == nil {
 		log.Fatal(err)
 	}
 	if err != nil {
 		log.Printf("scan interrupted: %v (writing partial result)", err)
-	}
-	prober := &probe.Prober{Timeout: *probeTO}
-	if *doProbe && ctx.Err() == nil {
-		start := time.Now()
-		n := prober.ProbeScan(ctx, res, *probePar)
-		log.Printf("probed %d web services in %v", n, time.Since(start).Round(time.Millisecond))
-	}
-	if *doFP && ctx.Err() == nil {
-		start := time.Now()
-		var fetcher fingerprint.Fetcher
-		if *fpPaths && *doProbe {
-			fetcher = prober
-		}
-		engine.Run(ctx, res, fetcher, *probePar)
-		log.Printf("fingerprinted in %v", time.Since(start).Round(time.Millisecond))
 	}
 
 	var w io.Writer = os.Stdout
@@ -161,16 +148,6 @@ func main() {
 	if err := enc.Encode(res); err != nil {
 		log.Fatal(err)
 	}
-	up, open := 0, 0
-	for _, h := range res.Hosts {
-		if h.State == "up" {
-			up++
-		}
-		for _, svc := range h.Services {
-			if svc.State == "open" {
-				open++
-			}
-		}
-	}
+	up, open := pipeline.Counts(res)
 	log.Printf("done in %v: %d hosts up, %d open ports", time.Duration(res.Duration).Round(time.Millisecond), up, open)
 }
