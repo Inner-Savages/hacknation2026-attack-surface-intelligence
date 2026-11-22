@@ -426,6 +426,7 @@ func (s *server) importHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+		s.reclassifyAll()
 		services := 0
 		for _, h := range sc.Hosts {
 			services += len(h.Services)

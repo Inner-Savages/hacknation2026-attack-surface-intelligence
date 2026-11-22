@@ -38,14 +38,21 @@ var assetAlertClasses = map[string]float64{
 // passive record knows about it. Returns a snapshot of the record and
 // whether the class actually changed. Timeline events are added on the
 // first confident classification and on every later change.
-func (r *hostRegistry) reclassify(ip string) (snapshot *HostRecord, changed bool) {
+func (r *hostRegistry) reclassify(ip string, scan *devclass.Input) (snapshot *HostRecord, changed bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h, ok := r.hosts[ip]
 	if !ok {
 		return nil, false
 	}
-	in := devclass.Input{MAC: h.MAC}
+	in := devclass.Input{MAC: h.MAC, IP: ip}
+	if scan != nil {
+		// Imported/scanned result for this address: open ports, product
+		// strings and HTTP titles join the passive evidence.
+		in.Ports = append(in.Ports, scan.Ports...)
+		in.Products = scan.Products
+		in.Titles = scan.Titles
+	}
 	for _, svc := range h.Services {
 		in.Ports = append(in.Ports, svc.Port)
 		if svc.Banner != "" {
@@ -97,7 +104,7 @@ func (s *server) updateAssetClass(ip string) {
 	if s.gt == nil {
 		return
 	}
-	h, changed := s.gt.registry.reclassify(ip)
+	h, changed := s.gt.registry.reclassify(ip, s.scanEvidence(ip))
 	if h == nil || !changed {
 		return
 	}
@@ -106,6 +113,57 @@ func (s *server) updateAssetClass(ip string) {
 		return
 	}
 	s.escalateAsset(h, score)
+}
+
+// scanEvidence extracts classifier input from the current imported/scanned
+// result for one address: open ports, "product version" strings and HTTP
+// titles. Returns nil when no scan knows the address.
+func (s *server) scanEvidence(ip string) *devclass.Input {
+	if s.inv == nil {
+		return nil
+	}
+	s.inv.mu.Lock()
+	defer s.inv.mu.Unlock()
+	if s.inv.scan == nil {
+		return nil
+	}
+	for i := range s.inv.scan.Hosts {
+		h := &s.inv.scan.Hosts[i]
+		if h.Address != ip {
+			continue
+		}
+		in := &devclass.Input{}
+		for _, svc := range h.Services {
+			if svc.State != "open" {
+				continue
+			}
+			in.Ports = append(in.Ports, svc.Port)
+			if p := strings.TrimSpace(svc.Product + " " + svc.Version); p != "" {
+				in.Products = append(in.Products, p)
+			} else if svc.Name != "" && !svc.Guessed {
+				in.Products = append(in.Products, svc.Name)
+			}
+			for _, t := range svc.Tech {
+				in.Products = append(in.Products, strings.TrimSpace(t.Name+" "+t.Version))
+			}
+			if svc.HTTP != nil && svc.HTTP.Title != "" {
+				in.Titles = append(in.Titles, svc.HTTP.Title)
+			}
+		}
+		return in
+	}
+	return nil
+}
+
+// reclassifyAll recomputes every host's label — after a scan import and at
+// startup, so classifier improvements reach hosts that were stored earlier.
+func (s *server) reclassifyAll() {
+	if s.gt == nil {
+		return
+	}
+	for _, h := range s.gt.registry.hostsSnapshot() {
+		s.updateAssetClass(h.IP)
+	}
 }
 
 // escalateAsset opens the "new camera in the server room" case. The event
