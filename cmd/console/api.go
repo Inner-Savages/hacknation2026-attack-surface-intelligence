@@ -127,6 +127,7 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/config", s.needAdmin(http.HandlerFunc(s.setConfig)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
+	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
 	// Machine intake: bearer token, unchanged contract.
 	mux.HandleFunc("POST /events", s.intake)
 	mux.HandleFunc("POST /logs", s.intakeLogs)
@@ -234,6 +235,25 @@ func (s *server) setUserAdmin(w http.ResponseWriter, r *http.Request) {
 		verb = "nadał(a) uprawnienia administratora operatorowi "
 	}
 	s.feed.Append("status", "", who+": "+verb+login, nil)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
+}
+
+// deleteUser removes an operator account and kills its sessions.
+func (s *server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	login := r.PathValue("login")
+	if sess := s.auth.who(r); sess != nil && sess.Login == login {
+		http.Error(w, "nie możesz usunąć własnego konta będąc zalogowanym", 400)
+		return
+	}
+	if err := s.auth.delete(login); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	who := "operator"
+	if sess := s.auth.who(r); sess != nil {
+		who = sess.Name
+	}
+	s.feed.Append("status", "", who+": usunął(a) konto operatora "+login, nil)
 	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 
@@ -378,6 +398,7 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	before := s.settings.snapshot()
+	wasDemoFeed := s.demoFeedOn()
 	if err := s.settings.update(p); err != nil {
 		http.Error(w, "persistence failed", 503)
 		return
@@ -392,7 +413,15 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 		if *p.DemoFeed {
 			changes = append(changes, "włączono syntetyczny feed demo")
 		} else {
-			changes = append(changes, "WYŁĄCZONO tryb demo — konsola w trybie live (tylko prawdziwe zdarzenia z edge)")
+			msg := "WYŁĄCZONO tryb demo — konsola w trybie live (tylko prawdziwe zdarzenia z edge)"
+			// Live mode also clears the synthetic content, so the dashboard
+			// shows only what the edge actually reported.
+			if wasDemoFeed {
+				if cn, sn := s.store.PurgeDemo(isDemoSensorID); cn+sn > 0 {
+					msg += fmt.Sprintf("; usunięto %d spraw i %d sensorów demo", cn, sn)
+				}
+			}
+			changes = append(changes, msg)
 		}
 	}
 	if p.AIOperator != nil && (before.AIOperator == nil || *before.AIOperator != *p.AIOperator) {
@@ -484,8 +513,10 @@ func (s *server) summary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{
 		"cards": cards, "updated_at": time.Now().Format(time.RFC3339),
 		"sensors": map[string]int{"total": online + offline, "online": online, "offline": offline},
-		"demo":    s.demoData,
-		"live":    !s.demoFeedOn(),
+		// "demo" means synthetic content may be on screen right now; the
+		// badge disappears as soon as the live switch purges it.
+		"demo": s.demoData && s.demoFeedOn(),
+		"live": !s.demoFeedOn(),
 	})
 }
 

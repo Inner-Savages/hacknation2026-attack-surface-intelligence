@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,6 +19,20 @@ var demoTypes = []string{"service_changed", "service_new", "host_new", "host_sil
 var demoReasons = []string{"remote_rank_max", "fast_tree_gnb", "model_error", "timeout", "unexpected_model_identity", "fail_open_invalid_event"}
 
 var demoPeople = []string{"Janek Baumgart", "M. Kowalska", "A. Lis", "J. Nowak"}
+
+// isDemoSensorID reports whether an ID belongs to the synthetic demo fleet
+// (edge-<miasto>-<n>), as opposed to a real sensor that reported over the wire.
+func isDemoSensorID(id string) bool {
+	for _, city := range demoCities {
+		if strings.HasPrefix(id, "edge-"+city+"-") {
+			rest := strings.TrimPrefix(id, "edge-"+city+"-")
+			if n, err := strconv.Atoi(rest); err == nil && n > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // seedDemo populates an empty store with a fleet of sensors and a realistic
 // spread of cases across statuses, sensors and event types.

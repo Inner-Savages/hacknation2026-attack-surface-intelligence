@@ -146,8 +146,38 @@ func (s *Store) recountSensors() {
 		sen.Counts = map[string]int{}
 	}
 	for _, c := range s.cases {
-		s.sensors[c.SensorID].Counts[c.Status]++
+		sen, ok := s.sensors[c.SensorID]
+		if !ok {
+			sen = &Sensor{ID: c.SensorID, FirstSeen: c.Received, LastSeen: c.Received, Counts: map[string]int{}}
+			s.sensors[c.SensorID] = sen
+		}
+		sen.Counts[c.Status]++
 	}
+}
+
+// PurgeDemo removes the synthetic demo content when the console switches to
+// live mode: seeded cases (event IDs carry the "demo-" prefix) are deleted
+// from memory and disk, and seeded fleet sensors are dropped from the
+// registry. Real cases and sensors (anything that arrived over the wire)
+// are untouched; the append-only audit log keeps the full history.
+func (s *Store) PurgeDemo(isDemoSensor func(string) bool) (casesRemoved, sensorsRemoved int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.cases {
+		if strings.HasPrefix(id, "demo-") {
+			delete(s.cases, id)
+			os.Remove(filepath.Join(s.dir, "cases", id+".json"))
+			casesRemoved++
+		}
+	}
+	for id := range s.sensors {
+		if isDemoSensor(id) {
+			delete(s.sensors, id)
+			sensorsRemoved++
+		}
+	}
+	s.recountSensors()
+	return casesRemoved, sensorsRemoved
 }
 
 // Heartbeat refreshes liveness for sensors currently marked online. The demo

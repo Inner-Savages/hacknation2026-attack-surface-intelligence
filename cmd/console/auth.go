@@ -254,6 +254,36 @@ func (a *auth) setAdmin(login string, admin bool) error {
 	return a.persistLocked()
 }
 
+// delete removes an account and its sessions. The last remaining admin
+// cannot be deleted — otherwise the console would lose all administration.
+func (a *auth) delete(login string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	key := strings.ToLower(strings.TrimSpace(login))
+	u, ok := a.users[key]
+	if !ok {
+		return fmt.Errorf("nie ma takiego operatora")
+	}
+	if u.Admin {
+		admins := 0
+		for _, x := range a.users {
+			if x.Admin {
+				admins++
+			}
+		}
+		if admins <= 1 {
+			return fmt.Errorf("nie można usunąć ostatniego administratora")
+		}
+	}
+	delete(a.users, key)
+	for tok, s := range a.sessions {
+		if s.Login == u.Login {
+			delete(a.sessions, tok)
+		}
+	}
+	return a.persistLocked()
+}
+
 func (a *auth) logout(token string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

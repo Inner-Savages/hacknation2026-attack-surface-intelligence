@@ -708,9 +708,12 @@ async function viewSettings() {
           <div class="switch-row">
             <div><b>${esc(u.name)}</b> <span class="muted mono" style="font-size:12px">${esc(u.login)}</span>
               <div class="desc">${u.admin ? 'Administrator — pełny dostęp do ustawień' : 'Operator — praca na sprawach, bez ustawień'} · konto od ${fmtDateTime(u.created_at)}</div></div>
-            <button class="toggle ${u.admin?'on':''}" title="${u.admin?'Odbierz':'Nadaj'} uprawnienia administratora" onclick="toggleAdmin('${esc(u.login)}', ${!u.admin})"></button>
+            <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+              ${u.login !== session.user?.login ? `<button class="btn danger" style="padding:4px 10px;font-size:12px" onclick="deleteUser('${esc(u.login)}')" title="Usuń konto">usuń</button>` : ''}
+              <button class="toggle ${u.admin?'on':''}" title="${u.admin?'Odbierz':'Nadaj'} uprawnienia administratora" onclick="toggleAdmin('${esc(u.login)}', ${!u.admin})"></button>
+            </div>
           </div>`).join('') || '<p class="muted">Brak kont.</p>'}
-        <p class="fineprint" style="margin-top:10px">Ostatni administrator nie może utracić uprawnień. Zmiany są audytowane w dzienniku live.</p>
+        <p class="fineprint" style="margin-top:10px">Ostatni administrator nie może utracić uprawnień ani zostać usunięty. Zmiany są audytowane w dzienniku live.</p>
       </div>
     </div>`;
 }
@@ -719,6 +722,13 @@ async function toggleAdmin(login, grant) {
     await post(`/api/users/${encodeURIComponent(login)}/admin`, {admin: grant});
     render();
   } catch (e) { alert('Nie udało się zmienić uprawnień: ' + e.message); }
+}
+async function deleteUser(login) {
+  if (!confirm(`Usunąć konto operatora „${login}”? Jego sesje zostaną zamknięte.`)) return;
+  try {
+    await api(`/api/users/${encodeURIComponent(login)}`, {method: 'DELETE'});
+    render();
+  } catch (e) { alert('Nie udało się usunąć konta: ' + e.message); }
 }
 async function saveConfig(patch) {
   try {

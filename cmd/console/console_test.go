@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -572,6 +574,82 @@ func TestOperatorAdminManagement(t *testing.T) {
 	a2, err := openAuth(s.store.dir)
 	if err != nil || !a2.users["ania"].Admin {
 		t.Fatal("admin flag was not persisted")
+	}
+
+	// Account deletion: removes the user and their sessions, refuses the
+	// last admin and self-deletion while logged in.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("DELETE", "/api/users/janek", nil), tok))
+	if w.Code != 400 {
+		t.Fatalf("self-deletion while logged in accepted: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("DELETE", "/api/users/ania", nil), tok))
+	if w.Code != 200 {
+		t.Fatalf("delete failed: %d %s", w.Code, w.Body.String())
+	}
+	if _, ok := s.auth.users["ania"]; ok {
+		t.Fatal("account survived deletion")
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/summary", nil), aniaTok))
+	if w.Code != 401 {
+		t.Fatal("deleted account's session still works")
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("DELETE", "/api/users/janek", nil), aniaTok))
+	if w.Code != 401 && w.Code != 403 {
+		t.Fatalf("expected auth failure for deleted operator, got %d", w.Code)
+	}
+}
+
+// Switching to live mode purges the synthetic fleet: demo cases and sensors
+// disappear from memory and disk, real cases stay, and the summary stops
+// reporting demo content.
+func TestLiveSwitchPurgesDemoData(t *testing.T) {
+	s, _, tok := testServer(t)
+	s.demoDefault = true
+	seedDemo(s.store, 137)
+	// A real case that arrived over the wire must survive the purge.
+	if _, err := s.store.AddEscalation(caseFromEnvForTest("real-1", "lab")); err != nil {
+		t.Fatal(err)
+	}
+	before := len(s.store.ListCases())
+	if before < 100 {
+		t.Fatalf("demo seed too small for the test: %d", before)
+	}
+	h := s.routes()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/config", strings.NewReader(`{"demo_feed":false}`)), tok))
+	if w.Code != 200 {
+		t.Fatalf("config update failed: %s", w.Body.String())
+	}
+	cases := s.store.ListCases()
+	if len(cases) != 1 {
+		t.Fatalf("expected only the real case after purge, got %d", len(cases))
+	}
+	if cases[0].EventID != "real-1" {
+		t.Fatalf("real case was purged: %+v", cases[0])
+	}
+	for _, sen := range s.store.ListSensors() {
+		if isDemoSensorID(sen.ID) {
+			t.Fatalf("demo sensor survived the purge: %s", sen.ID)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(s.store.dir, "cases"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("demo case files left on disk: %v (%d)", err, len(entries))
+	}
+	// Summary flips to live without a demo badge.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/summary", nil), tok))
+	var sum map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &sum)
+	if sum["demo"] != false || sum["live"] != true {
+		t.Fatalf("summary still reports demo content: %v", sum)
+	}
+	if sum["sensors"].(map[string]interface{})["total"].(float64) != 1 {
+		t.Fatalf("fleet was not rebuilt: %v", sum["sensors"])
 	}
 }
 
