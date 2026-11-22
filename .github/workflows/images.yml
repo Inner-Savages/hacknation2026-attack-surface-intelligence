@@ -1,6 +1,6 @@
 name: CI
 
-# Testy z pokryciem, potem obrazy sensora, generatora ruchu i skanera do ghcr.io (amd64 + arm64).
+# Testy z pokryciem, potem obrazy sensora, generatora ruchu, skanera, triggera i konsoli do ghcr.io (amd64 + arm64).
 # main -> :latest i :sha-<commit>, tag vX.Y.Z -> :X.Y.Z i :X.Y.
 # Badge pokrycia: plik coverage.json na gałęzi `badges`, rysowany przez shields.io.
 on:
@@ -15,10 +15,12 @@ on:
       - "Dockerfile"
       - ".github/workflows/images.yml"
       - "deploy/cascade50/**"
+      - "deploy/demo/**"
       - "models/**"
   pull_request:
     paths:
       - "deploy/cascade50/**"
+      - "deploy/demo/**"
       - "models/**"
       - "cmd/**"
       - "internal/**"
@@ -45,6 +47,7 @@ jobs:
       - run: go test -coverprofile=coverage.out ./...
       - run: go test -race ./cmd/edgegate ./internal/edge/...
       - run: docker compose -f deploy/cascade50/compose.yaml config --quiet
+      - run: ASI_CENTRAL_TOKEN=x docker compose --env-file deploy/demo/.env.example -f deploy/demo/compose.yaml --profile lab config --quiet
       - name: Coverage summary
         run: |
           go tool cover -func=coverage.out | tail -1
@@ -76,7 +79,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        target: [sensor, traffic, scanner]
+        target: [sensor, traffic, scanner, trigger, console]
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

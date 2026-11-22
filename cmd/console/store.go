@@ -112,7 +112,7 @@ func openStore(dir string) (*Store, error) {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, "cases", e.Name()))
+		b, err := rest.ReadFile(filepath.Join(dir, "cases", e.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -232,20 +232,19 @@ func (s *Store) persistLocked(c *Case) error {
 		return err
 	}
 	final := filepath.Join(s.dir, "cases", c.EventID+".json")
-	tmp := final + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, final)
+	return rest.WriteFile(final, b, 0o600)
 }
 
 func (s *Store) auditLocked(e HistoryEntry, id string) {
-	f, err := os.OpenFile(s.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(s.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	b, _ := json.Marshal(map[string]interface{}{"event_id": id, "entry": e})
+	if line, err := rest.SealLine(b, "audit.jsonl"); err == nil {
+		b = line
+	}
 	f.Write(append(b, '\n'))
 	f.Sync()
 	if s.OnAudit != nil {

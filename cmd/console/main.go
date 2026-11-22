@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,9 @@ func main() {
 	aiOperator := flag.Bool("ai-operator", envOr("ASI_AI_OPERATOR", "") == "true", "let the configured LLM act as an autonomous, fully audited operator")
 	flag.Parse()
 
+	if err := initAtRest(*dataDir); err != nil {
+		log.Fatalf("data encryption: %v", err)
+	}
 	store, err := openStore(*dataDir)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -55,10 +59,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("open rules: %v", err)
 	}
+	roleSt, err := openRoles(*dataDir)
+	if err != nil {
+		log.Fatalf("open roles: %v", err)
+	}
 	srv := &server{
+		roles: roleSt, audit: openAudit(*dataDir),
 		store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demoData: *demo, feed: feed,
 		operator: *operator, aiAuto: *aiAuto, aiOpDefault: *aiOperator, demoDefault: *demo,
 		auth: userAuth, settings: cfg, rules: rules,
+		registrationClosed: !envBool("ASI_ALLOW_REGISTRATION", true),
+	}
+	if err := seedAccounts(userAuth); err != nil {
+		log.Fatalf("seed accounts: %v", err)
+	}
+	if srv.registrationClosed {
+		log.Printf("self-registration disabled (ASI_ALLOW_REGISTRATION=false)")
 	}
 	// Ground truth: periodic active control scans of passively silent hosts,
 	// so the silent_stealth observability gap is measured, not invisible.
@@ -67,6 +83,9 @@ func main() {
 		log.Fatalf("open host registry: %v", err)
 	}
 	srv.gt = gt
+	if srv.inv, err = openInventory(*dataDir); err != nil {
+		log.Fatalf("open inventory: %v", err)
+	}
 	// Inside/outside correlation: what Shodan/Censys see of the public IP,
 	// diffed against the passive registry (shadow IT, accidental exposure).
 	expo, err := newExposureCheck(*dataDir, store, feed, cfg, gt)
@@ -147,6 +166,17 @@ func main() {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+// envBool reads a boolean variable; unset or unparsable values give fallback.
+func envBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
 	}
 	return fallback
 }
