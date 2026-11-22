@@ -387,3 +387,9 @@ make test     # go vet + go test (needs libpcap-dev)
 
 The build process is documented (Polish and English) on
 [q84fh.net](https://q84fh.net/tags/hacknation2026/).
+
+## License
+
+[MIT](LICENSE), except third-party material: [`models/`](models/README.md) (Apache-2.0)
+and [`lab/agh/upstream/`](lab/agh/README.md) (lab templates by CBI AGH, all rights remain
+with their authors).
