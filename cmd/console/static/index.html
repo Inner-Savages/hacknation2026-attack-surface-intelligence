@@ -227,6 +227,7 @@ tbody tr:hover { background: var(--panel-2); }
     <button class="tab" data-nav="ekspozycja" onclick="go('#/ekspozycja')">Ekspozycja</button>
     <button class="tab" data-nav="tls" onclick="go('#/tls')">TLS</button>
     <button class="tab" data-nav="zasoby" onclick="go('#/zasoby')">Zasoby</button>
+    <button class="tab" data-nav="ryzyko" onclick="go('#/ryzyko')">Ryzyko</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
     <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
@@ -1448,6 +1449,92 @@ async function loadAssetDetail(ip) {
   box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
 }
 
+// --- host risk scoring (Top 10) ---------------------------------------------
+const RISK_GRADE = {
+  krytyczne: {label: 'KRYTYCZNE', cls: 'potwierdzony', dot: 'red'},
+  wysokie:   {label: 'WYSOKIE',   cls: 'do_weryfikacji', dot: 'orange'},
+  średnie:   {label: 'ŚREDNIE',   cls: 'nowe', dot: 'green'},
+  niskie:    {label: 'NISKIE',    cls: 'zamkniety', dot: 'gray'},
+};
+const riskState = {limit: 10, selected: null};
+
+async function viewRisk() {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading-line"><div class="spinner"></div> Liczę scoring ryzyka hostów…</div>';
+  let d;
+  try { d = await api('/api/risk?limit=' + riskState.limit); }
+  catch (e) { app.innerHTML = `<div class="empty"><h3>Nie udało się policzyć ryzyka</h3><p>${esc(e.message)}</p></div>`; return; }
+
+  const hosts = d.hosts || [];
+  const byGrade = g => hosts.filter(h => h.grade === g).length;
+
+  if (!(d.total || 0)) {
+    app.innerHTML = `<div class="empty"><div class="waves">∿</div>
+      <h3>Brak hostów do oceny</h3>
+      <p>Scoring łączy wszystkie sygnały konsoli — CVE/EPSS, oceny kaskady ML, nowe usługi, porty administracyjne, TLS, ekspozycję i klasy urządzeń — w jedną odpowiedź „co naprawić najpierw". Pojawi się, gdy edge zacznie raportować.</p></div>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <div class="cards">
+      <div class="card panel"><div class="label"><span class="dot red"></span> KRYTYCZNE</div><div class="value">${byGrade('krytyczne')}</div><div class="sub">napraw w pierwszej kolejności</div></div>
+      <div class="card panel"><div class="label"><span class="dot orange"></span> WYSOKIE</div><div class="value">${byGrade('wysokie')}</div><div class="sub">zaplanuj dziś</div></div>
+      <div class="card panel"><div class="label"><span class="dot green"></span> ŚREDNIE</div><div class="value">${byGrade('średnie')}</div><div class="sub">obserwuj</div></div>
+      <div class="card panel"><div class="label">WSZYSTKIE HOSTY</div><div class="value">${d.total}</div><div class="sub">w scoringu · top ${hosts.length} poniżej</div></div>
+    </div>
+    <div class="feed-toolbar">
+      <span class="muted">Zagregowany wynik ekspozycji: CVE/EPSS, kaskada ML, nowe usługi, porty adm., TLS, bannery, ekspozycja zewnętrzna, dryf i klasa urządzenia.</span>
+      <span style="flex:1"></span>
+      <select onchange="riskState.limit=Number(this.value);render()">
+        ${[10, 25, 50].map(n => `<option value="${n}" ${riskState.limit===n?'selected':''}>Top ${n}</option>`).join('')}
+      </select>
+      <button class="btn" onclick="render()">Przelicz</button>
+    </div>
+    <div class="panel">
+      <table><thead><tr><th>#</th><th>Host</th><th>Wynik</th><th>Poziom</th><th>Klasa</th><th>Główne czynniki</th><th>Sprawy</th></tr></thead>
+      <tbody>${hosts.map((h, i) => {
+        const g = RISK_GRADE[h.grade] || RISK_GRADE.niskie;
+        const cls = h.class ? (ASSET_CLASS[h.class]?.label || h.class) : '—';
+        const topFactors = (h.factors || []).slice(0, 2).map(f => esc(f.detail).slice(0, 60)).join(' · ');
+        return `<tr onclick="selectRisk('${esc(h.ip)}')" class="${riskState.selected === h.ip ? 'sel' : ''}">
+          <td class="mono muted">${i + 1}</td>
+          <td class="mono">${esc(h.ip)}</td>
+          <td><div style="display:flex;align-items:center;gap:8px"><span class="score">${h.score.toFixed(1)}</span><span class="bar" style="display:inline-block;width:70px;height:8px;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;overflow:hidden"><i style="display:block;height:100%;width:${Math.min(100, h.score)}%;background:${h.score >= 70 ? 'var(--danger)' : h.score >= 40 ? 'var(--warn)' : 'var(--accent)'}"></i></span></div></td>
+          <td><span class="badge ${g.cls}"><span class="dot ${g.dot}"></span>${g.label}</span></td>
+          <td style="font-size:12.5px">${esc(cls)}${h.vendor ? ` <span class="muted" style="font-size:11px">${esc(h.vendor)}</span>` : ''}</td>
+          <td style="font-size:12px" class="muted">${topFactors || '—'}</td>
+          <td class="mono">${h.open_cases || 0}</td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>
+    <div id="riskDetail"></div>
+    <p class="fineprint" style="margin-top:10px">Każdy punkt jest audytowalny: rozwiń host, aby zobaczyć pełny rozklad czynników. Scoring liczony jest na żywo z aktualnego stanu rejestru, spraw, znalezień TLS i korelacji zewnętrznej.</p>`;
+  if (riskState.selected) renderRiskDetail(riskState.selected, hosts);
+}
+function selectRisk(ip) {
+  riskState.selected = (riskState.selected === ip) ? null : ip;
+  render();
+}
+function renderRiskDetail(ip, hosts) {
+  const box = $('#riskDetail');
+  if (!box) return;
+  const h = (hosts || []).find(x => x.ip === ip);
+  if (!h) { box.innerHTML = ''; return; }
+  const g = RISK_GRADE[h.grade] || RISK_GRADE.niskie;
+  box.innerHTML = `
+    <div class="panel" style="padding:18px;margin-top:16px">
+      <h4>ROZKŁAD RYZYKA · ${esc(h.ip)} <span class="badge ${g.cls}">${g.label} ${h.score.toFixed(1)}</span></h4>
+      ${(h.factors || []).length ? h.factors.map(f => `
+        <div class="score-row" style="grid-template-columns:140px 1fr 60px">
+          <span class="mono muted">${esc(f.name)}</span>
+          <span style="font-size:12.5px">${esc(f.detail)}</span>
+          <span class="score" style="text-align:right">+${f.points.toFixed(1)}</span>
+        </div>`).join('') : '<p class="muted" style="font-size:13px;margin-top:8px">Brak czynników ryzyka — host jest czysty.</p>'}
+      <p class="fineprint" style="margin-top:10px">Ostatni kontakt ${fmtDateTime(h.last_seen)}${h.check_verdict ? ' · werdykt skanu kontrolnego: ' + esc(h.check_verdict) : ''} · <a href="#/zasoby">zobacz w inwentarzu zasobów</a></p>
+    </div>`;
+  box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+}
+
 // --- router ----------------------------------------------------------------
 async function render() {
   if (!session.user) return; // auth screen is up
@@ -1458,6 +1545,7 @@ async function render() {
     : h.startsWith('#/ekspozycja') ? t.dataset.nav === 'ekspozycja'
     : h.startsWith('#/tls') ? t.dataset.nav === 'tls'
     : h.startsWith('#/zasoby') ? t.dataset.nav === 'zasoby'
+    : h.startsWith('#/ryzyko') ? t.dataset.nav === 'ryzyko'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
     : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
@@ -1466,6 +1554,7 @@ async function render() {
   if (h.startsWith('#/ekspozycja')) return viewExposure();
   if (h.startsWith('#/tls')) return viewTLS();
   if (h.startsWith('#/zasoby')) return viewAssets();
+  if (h.startsWith('#/ryzyko')) return viewRisk();
   if (h.startsWith('#/sensory')) return viewSensors();
   if (h.startsWith('#/logi')) return viewLogs();
   if (h.startsWith('#/reguly')) return viewRules();
@@ -1475,7 +1564,7 @@ async function render() {
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa') && !location.hash.startsWith('#/ekspozycja') && !location.hash.startsWith('#/tls') && !location.hash.startsWith('#/zasoby')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa') && !location.hash.startsWith('#/ekspozycja') && !location.hash.startsWith('#/tls') && !location.hash.startsWith('#/zasoby') && !location.hash.startsWith('#/ryzyko')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {
