@@ -2,9 +2,11 @@
 
 Cel: 8–10 minut, 10 slajdów (`docs/slides/silence-on-the-wire.pdf`), demo na żywo na slajdzie 5. Szczegóły kroków: `DEMO.md`.
 
+> Publiczne demo zostało wyłączone po ocenie 2026-11-22. Przed kolejnym pokazem postaw własną instancję wg `deploy/demo/README.md`.
+
 ## Przed wejściem (2 minuty)
 
-- [ ] Otwórz `https://silent.zjadlabymciastko.net` w dwóch kartach: jedna zalogowana jako `jury`, druga jako `admin`. Hasła od zespołu (nie ma ich w repo).
+- [ ] Otwórz konsolę w dwóch kartach: jedna zalogowana jako `jury`, druga jako `admin`. Hasła od zespołu (nie ma ich w repo).
 - [ ] Sprawdź nagłówek konsoli: „DANE DEMO” i „LIVE · tylko edge”, sensory online, w Mapie widać hosty `172.29.10.x` / `172.29.11.x`.
 - [ ] Zakładka TLS ma 3 znaleziska (wygasły, wygasa za 9 dni, self-signed). Jeśli jest pusta: `admin` → „Uruchom kontrolę teraz” (dane pojawiają się po skanie kontrolnym cichych hostów).
 - [ ] Terminal z repo gotowy: `make build`, w drugim oknie lab AGH (jeśli pokazujesz skan i diff lokalnie, `DEMO.md` sekcja B).
@@ -50,7 +52,6 @@ Próbny przebieg 2026-11-22: publiczny adres 200 w 0,16 s, `jury` czyta i dostaj
 - **Zasoby:** klasyfikacja to heurystyka na portach i banerach; bramki z samym portem 22 (`172.29.10.1`, `172.29.11.1`) bywają pokazane jako „Serwer Git”. To znane ograniczenie (`ARCHITECTURE.md`, sekcja 10), powiedz o nim, jeśli otwierasz tę zakładkę.
 - **Skan usług TLS z labu jest wolny:** skan czterech hostów `172.29.10.50-53` na porcie 443 trwał ponad 3 minuty (nmap `-sV` wobec `openssl s_server`), a dwa kolejne przebiegi zmieniają hash favicony (każdy start generuje inną stronę, więc diff pokazuje szum). Na żywo skanuj lab AGH z `DEMO.md` (7 portów, ok. 5 s), nie hosty TLS.
 - **Mapa:** host `172.29.10.4` jest „nieosiągalny” (flapper); to zamierzony host niestabilny.
-- **Dostęp:** na czas oceny (do 18:00) Cloudflare Access jest wyłączony, wystarczy logowanie do konsoli.
 
 ## Możliwe pytania i krótkie odpowiedzi
 
