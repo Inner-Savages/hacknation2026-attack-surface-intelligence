@@ -16,7 +16,98 @@
 #     (POST /findings through the same relay), where it correlates with the
 #     passive case or opens a new one, labelled WERYFIKACJA in the live feed.
 # Needs ASI_CENTRAL_TOKEN in the environment (e.g. `set -a; . deploy/demo/.env`).
+# One image (alpine + openssl), one script, three behaviours. Certificates and
+# keys are generated in the container at start (nothing in the repo); dates are
+# set with `openssl x509 -not_before/-not_after` (OpenSSL >= 3.4). `openssl
+# s_server` is the TLS endpoint, so there is no web server and no apk at runtime.
+# CERT_MODE: selfsigned | ca-days (issued by "Demo Internal CA", valid for
+# CERT_DAYS, negative = already expired) | rotate (internal CA first, then a
+# different "Unknown Rogue CA" cert after ROTATE_AFTER seconds = CA change).
+x-tls-service: &tls-service
+  image: alpine/openssl:latest
+  restart: unless-stopped
+  entrypoint: ["sh", "-c"]
+  command:
+    - |
+      set -eu
+      d=/tmp/tls; mkdir -p $$d; cd $$d
+      stamp() { date -u -d "@$$(( $$(date +%s) + $$1 * 86400 ))" +%Y%m%d%H%M%SZ; }
+      mkca() {
+        openssl req -x509 -newkey rsa:2048 -nodes -keyout "$$1.key" -out "$$1.crt" \
+          -subj "/O=Silent Demo/CN=$$1" -days 3650 -addext basicConstraints=critical,CA:TRUE 2>/dev/null
+      }
+      mkleaf() { # NAME CA DAYS_FROM_NOW
+        openssl req -newkey rsa:2048 -nodes -keyout "$$1.key" -out "$$1.csr" \
+          -subj "/O=Silent Demo/CN=$$HOSTNAME" 2>/dev/null
+        from=-1; [ "$$3" -lt 0 ] && from=$$(( $$3 - 60 ))
+        openssl x509 -req -in "$$1.csr" -CA "$$2.crt" -CAkey "$$2.key" -CAcreateserial \
+          -not_before "$$(stamp $$from)" -not_after "$$(stamp "$$3")" -out "$$1.crt" 2>/dev/null
+      }
+      case "$${CERT_MODE}" in
+        selfsigned)
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.crt \
+            -subj "/O=Silent Demo/CN=$$HOSTNAME" -days "$${CERT_DAYS:-365}" 2>/dev/null ;;
+        ca-days)
+          mkca "Demo Internal CA"; mkleaf leaf "Demo Internal CA" "$${CERT_DAYS}" ;;
+        rotate)
+          mkca "Demo Internal CA"; mkca "Unknown Rogue CA"
+          mkleaf leaf "Demo Internal CA" 200; mkleaf rogue "Unknown Rogue CA" 200 ;;
+        *) echo "CERT_MODE must be selfsigned|ca-days|rotate"; exit 1 ;;
+      esac
+      serve() { openssl s_server -accept 443 -cert "$$1.crt" -key "$$1.key" -www -quiet >/dev/null 2>&1 & }
+      echo "tls: $${CERT_MODE} -> $$(openssl x509 -in leaf.crt -noout -issuer -enddate | tr '\n' ' ')"
+      serve leaf
+      if [ "$${CERT_MODE}" = rotate ]; then
+        sleep "$${ROTATE_AFTER:-900}"; kill $$!; sleep 1
+        serve rogue
+        echo "tls: rotated to $$(openssl x509 -in rogue.crt -noout -issuer)"
+      fi
+      wait $$!
+
 services:
+  tls-selfsigned:
+    <<: *tls-service
+    networks:
+      frontend: {ipv4_address: "${TLS_SELFSIGNED_IP:-172.29.10.50}"}
+    environment: {CERT_MODE: selfsigned, CERT_DAYS: "365"}
+
+  tls-expiring:
+    <<: *tls-service
+    networks:
+      frontend: {ipv4_address: "${TLS_EXPIRING_IP:-172.29.10.51}"}
+    environment: {CERT_MODE: ca-days, CERT_DAYS: "10"}
+
+  tls-expired:
+    <<: *tls-service
+    networks:
+      frontend: {ipv4_address: "${TLS_EXPIRED_IP:-172.29.10.52}"}
+    environment: {CERT_MODE: ca-days, CERT_DAYS: "-3"}
+
+  tls-rotate:
+    <<: *tls-service
+    networks:
+      frontend: {ipv4_address: "${TLS_ROTATE_IP:-172.29.10.53}"}
+    environment: {CERT_MODE: rotate, ROTATE_AFTER: "${TLS_ROTATE_AFTER:-900}"}
+
+  # Short burst: after the sensor's learning window (SENSOR_LEARN, 30s) touch each
+  # TLS service a few times so the sensor learns the hosts, then stop for good.
+  # The console probes certificates only during control scans of SILENT hosts,
+  # so these services must not get steady traffic (they go host_silent after
+  # SENSOR_SILENT_AFTER). Re-poke later: up -d --force-recreate tls-poke
+  tls-poke:
+    image: alpine/openssl:latest
+    restart: "no"
+    networks: [frontend]
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        sleep $${POKE_DELAY:-45}
+        for i in 1 2 3 4; do
+          for h in tls-selfsigned tls-expiring tls-expired tls-rotate; do nc -w 2 $$h 443 </dev/null || true; done
+          sleep 10
+        done
+    depends_on: [tls-selfsigned, tls-expiring, tls-expired, tls-rotate]
+
   sensor:
     command:
       - -i
