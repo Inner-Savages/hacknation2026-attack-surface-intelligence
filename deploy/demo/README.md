@@ -132,6 +132,40 @@ docker compose -p demo-lab \
 docker compose -p demo-lab -f ... logs -f sensor trigger
 ```
 
+### TLS findings in the lab
+
+`lab.override.yml` also starts four tiny TLS services (`alpine/openssl`,
+`openssl s_server` on :443) on the frontend network, so the console's **TLS** tab
+has real findings. Certificates and keys are generated in the container at start
+(nothing in the repo):
+
+| service | IP | certificate | finding |
+|---|---|---|---|
+| `tls-selfsigned` | 172.29.10.50 | self-signed, 365 days | `tls_self_signed` (warn) |
+| `tls-expiring` | 172.29.10.51 | "Demo Internal CA", 10 days left | `tls_expiring` (high, 14-day threshold) |
+| `tls-expired` | 172.29.10.52 | "Demo Internal CA", expired 3 days ago | `tls_expired` (crit) |
+| `tls-rotate` | 172.29.10.53 | "Demo Internal CA", swapped for "Unknown Rogue CA" after `TLS_ROTATE_AFTER` s (default 900) | `tls_ca_change` (high) |
+
+How they reach the TLS tab: the console only probes certificates during
+**control scans of silent hosts** (ground truth), then the TLS monitor evaluates
+those records. So `tls-poke` touches the four services a few times after the
+sensor's learning window (the sensor reports them via `/logs`), then leaves them
+alone and they go `host_silent`. Steady traffic would keep them out of the scan.
+The default silence threshold is 60 min; for the demo lower it once and run the
+scans (admin session cookie in `cj`):
+
+```bash
+C=https://silent.zjadlabymciastko.net
+curl -s -b cj -XPOST -H 'Content-Type: application/json' -d '{"gt_silent_min":1}' $C/api/config
+curl -s -b cj -XPOST $C/api/groundtruth/run; sleep 15
+curl -s -b cj -XPOST $C/api/tls/run;         sleep 3
+curl -s -b cj $C/api/tls
+```
+
+The CA change is raised on the first TLS run after the swap (run both scans once
+before and once after `TLS_ROTATE_AFTER`). Re-poke after a restart with
+`docker compose -p demo-lab -f ... up -d --force-recreate tls-poke`.
+
 ## Operations
 
 | | |
