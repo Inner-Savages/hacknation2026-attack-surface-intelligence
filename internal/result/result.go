@@ -12,11 +12,23 @@ import (
 type Scan struct {
 	StartedAt  time.Time `json:"started_at"`
 	FinishedAt time.Time `json:"finished_at"`
-	Duration   Duration  `json:"duration"`
+	Duration   Duration  `json:"duration"` // time spent scanning; without Sessions the same as finished - started
 	Targets    []string  `json:"targets"`
 	Settings   Settings  `json:"settings"`
+	Sessions   []Session `json:"sessions,omitempty"` // scheduled scans: the stretches the run was split into
 	Chunks     []Chunk   `json:"chunks"`
 	Hosts      []Host    `json:"hosts"`
+}
+
+// Session is one uninterrupted stretch of a scan. A scan that does not fit
+// its time window continues in another session.
+type Session struct {
+	StartedAt  time.Time `json:"started_at"`
+	FinishedAt time.Time `json:"finished_at"`
+	Duration   Duration  `json:"duration"`
+	Chunks     int       `json:"chunks"`  // finished in this session
+	Targets    int       `json:"targets"` // covered by those chunks
+	Stopped    string    `json:"stopped"` // "completed", "window closed", ...
 }
 
 // Settings records how the scan was run, so results are reproducible.
@@ -24,16 +36,26 @@ type Settings struct {
 	NmapArgs  []string `json:"nmap_args"`
 	ChunkSize int      `json:"chunk_size"`
 	Parallel  int      `json:"parallel"`
+	// Adaptive chunking: the duration chunks are sized for and the bounds
+	// on their size. Zero target: every chunk has ChunkSize targets.
+	ChunkTarget Duration `json:"chunk_target,omitzero"`
+	ChunkMin    int      `json:"chunk_min,omitempty"`
+	ChunkMax    int      `json:"chunk_max,omitempty"`
+	VersionMode string   `json:"version_mode,omitempty"`
+	VersionWait Duration `json:"version_wait,omitzero"`
 }
 
-// Chunk is one nmap invocation over a subset of targets. Its duration is
-// the basis for tuning chunk sizes to the scan speed.
+// Chunk is one group of targets scanned together. Its duration is the basis
+// for tuning chunk sizes to the scan speed.
 type Chunk struct {
-	Index    int      `json:"index"`
-	Targets  int      `json:"targets"`
-	HostsUp  int      `json:"hosts_up"`
-	Duration Duration `json:"duration"`
-	Error    string   `json:"error,omitempty"`
+	Index     int       `json:"index"`
+	Targets   int       `json:"targets"`
+	HostsUp   int       `json:"hosts_up"`
+	StartedAt time.Time `json:"started_at"`
+	Duration  Duration  `json:"duration"`
+	Reason    string    `json:"reason,omitempty"`  // why the chunk has this many targets
+	Retried   int       `json:"retried,omitempty"` // services scanned again with full -sV waits
+	Error     string    `json:"error,omitempty"`
 }
 
 // Host is one scanned address.
@@ -83,8 +105,9 @@ type Service struct {
 	ExtraInfo string   `json:"extra_info,omitempty"`
 	Tunnel    string   `json:"tunnel,omitempty"` // "ssl" when nmap saw TLS
 	CPE       []string `json:"cpe,omitempty"`
-	HTTP      *HTTP    `json:"http,omitempty"` // filled by the HTTP prober for web services
-	Tech      []Tech   `json:"tech,omitempty"` // filled by fingerprinting
+	Guessed   bool     `json:"guessed,omitempty"` // Name comes from the port number; version detection found nothing
+	HTTP      *HTTP    `json:"http,omitempty"`    // filled by the HTTP prober for web services
+	Tech      []Tech   `json:"tech,omitempty"`    // filled by fingerprinting
 }
 
 // Duration marshals as a human-readable string ("1m2.5s").

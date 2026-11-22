@@ -174,9 +174,11 @@ make build
 ```
 
 Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `-Pn`,
-`-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-chunk` and `-parallel` (chunking),
-`-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`;
-imported Wappalyzer/nuclei bases work too, see `cmd/sigimport`),
+`-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-parallel`, `-chunk-time 1m` (chunks are sized
+by the measured speed to take about this long; `-chunk N` fixes the size instead),
+`-version-mode` (`balanced`: short `-sV` waits, then ports left unidentified again with
+nmap's own; `fast`: no second pass; `full`: plain nmap), `-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
+Imported Wappalyzer/nuclei signature bases work too, see `cmd/sigimport`.
 `-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`),
 `-cve` (map detected product versions to CVEs, see below), `-cve-cache` (cache dir,
 default `var/cve-cache`).
@@ -214,6 +216,23 @@ matched within the test, so give networks with overlapping addresses separate te
 scans on the command line count as current; findings missing from them are not closed. The
 token needs permission to create findings there (and products, if they are missing).
 `lab/defectdojo/` runs a local instance for trying it out.
+
+### Scheduled scans
+
+```bash
+./bin/scanner schedule -window 22:00-05:00 -tz Europe/Warsaw -every daily@22:00 \
+  -checkpoint state.jsonl -out results -f targets.txt -allow 10.0.0.0/16
+```
+
+Scans only inside the windows (`mon-fri 22:00-05:00,sat+sun 00:00-24:00`) and as often as
+`-every` says (`once`, `24h`, `daily@22:00`, `mon+thu@22:00`). When a window closes, running
+nmap processes are stopped and the next window continues with the targets that are left:
+each finished chunk, probed and fingerprinted, is already in the checkpoint. Restarting
+the same command resumes too. Chunks are sized to finish before the window closes, and the
+log shows when the whole run is expected to end. Each completed run becomes
+`results/scan-<start>.json` with its sessions, chunk durations and the reason for each
+chunk size. All flags of a plain scan apply; changing the targets or what is scanned
+starts over, changing speed limits does not.
 
 ### Sensor + trigger
 
@@ -286,7 +305,8 @@ make test     # go vet + go test (needs libpcap-dev)
 
 Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, baseline),
 `internal/scan` (targets, chunks, nmap), `internal/probe` (HTTP/TLS), `internal/fingerprint`
-(signatures), `internal/pipeline` (scan + probe + fingerprint), `internal/diff`, `internal/export` (CSV, DefectDojo),
+(signatures), `internal/pipeline` (scan + probe + fingerprint),
+`internal/schedule` (windows, frequency, checkpoints), `internal/diff`, `internal/export` (CSV, DefectDojo),
 `internal/trigger` (policy, service), `internal/result` (shared model), `internal/traffic`,
 `lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`).
 
