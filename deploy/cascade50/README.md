@@ -2,8 +2,9 @@
 
 This package adds a Go edge gate alongside the existing sensor. It includes the
 calibrated Decision Tree and Gaussian Naive Bayes, the three real neural model
-checkpoints, tokenizers, runtime dependency locks, Docker builds, and a durable
-integration inbox. The sensor and scanner remain independent programs.
+checkpoints, tokenizers, runtime dependency locks, Docker builds, the operator
+web console, and a durable integration inbox. The sensor and scanner remain
+independent programs.
 
 ```text
 sensor -> append-only JSONL -> Go Tree + GNB rank mean
@@ -11,12 +12,16 @@ sensor -> append-only JSONL -> Go Tree + GNB rank mean
                                    | otherwise
                               Basal + Laya + Kev over HTTP
                                    | rank maximum
-                              durable outbox -> central HTTP endpoint
+                              durable outbox -> operator console
+                              (fleet view, case workflow, actions)
 ```
 
-The included `receive` command stores escalations for inspection. **It is an
-integration inbox, not a central analytical AI model.** An analytical service can
-consume this inbox or implement the same HTTP acknowledgement contract.
+The default pipeline delivers escalations to the **operator console**
+(`cmd/console`), where a human verifies cases from the whole sensor fleet. The
+included `receive` command remains available as a minimal integration inbox for
+external analytics endpoints — it is not a central analytical AI model. Any
+service implementing the same HTTP acknowledgement contract can take the
+console's place.
 
 ## Start from a clean checkout
 
@@ -39,22 +44,29 @@ model servers. `make cascade50-models` does only the download.
 The first build needs internet access for base images and pinned packages. Model
 loading uses local read-only files with Hugging Face offline mode enabled.
 
-`up` starts Basal, Laya, Kev and the integration inbox, then tests actual
-`/v1/systemone` responses and calibrated model identities. `smoke` runs ten
-synthetic events through real inference and checks that every escalation was
-acknowledged. Decisions are saved to `var/cascade50/smoke-decisions.jsonl`.
+`up` starts Basal, Laya, Kev and the operator console, then tests actual
+`/v1/systemone` responses and calibrated model identities, and waits for the
+console's health endpoint. `smoke` runs ten synthetic events through real
+inference and checks that every escalation was durably acknowledged by the
+console. Decisions are saved to `var/cascade50/smoke-decisions.jsonl`.
 Model APIs are published only on loopback: Basal 18000, Laya 18001, Kev 18008;
-the inbox is at `http://127.0.0.1:18080/events`.
+the console is at `http://127.0.0.1:18081` (intake `POST /events`).
+
+For the full system in one command — models, the gate following the sensor
+output, and escalations landing in the console — run:
+
+```sh
+make cascade50-demo   # then watch http://127.0.0.1:18081
+```
 
 ```sh
 docker compose -f deploy/cascade50/compose.yaml logs --tail=100
-docker compose -f deploy/cascade50/compose.yaml exec central sh -c 'ls /data/inbox'
 make cascade50-down
 ```
 
-Stopping the stack preserves both named volumes, including pending escalations
-and accepted envelopes. Do not remove the volumes until their contents have been
-processed or archived.
+Stopping the stack preserves all named volumes, including pending escalations,
+accepted envelopes and console cases. Do not remove the volumes until their
+contents have been processed or archived.
 
 ## Between the sensor and the trigger (optional stage)
 
@@ -192,6 +204,46 @@ This gate does not automatically launch active scans.
   baseline. Future updates require approved external feedback and recalibration.
 - `host_silent` describes lack of observed traffic; it does not establish that a
   host is inactive or compromised.
+
+## Operator console for the escalation fleet
+
+`cmd/console` is the human verification layer above the inbox: a durable case
+store plus a web UI where an operator triages escalations from the whole
+sensor fleet. It accepts the same delivery contract as the bundled receiver
+(`POST /events`, bearer token, `202` after durable write, deduplication by
+`event_id`), so the gate can deliver to it directly.
+
+```sh
+make console-up                 # demo fleet of 137 sensors on 127.0.0.1:18081
+# or point a real gate at it:
+./bin/edgegate gate -sensor-id site-a ... -central-url http://127.0.0.1:18081/events
+```
+
+The console is designed for **hundreds of edge sensors**: a fleet view with
+online/offline health, per-sensor alert counts and last contact, plus search
+and pagination; the alerts view filters by sensor, status, event type and
+free text. Sensor liveness comes from incoming escalations (a sensor silent
+longer than `-offline-ttl` is marked offline); the demo mode simulates
+heartbeats so the fleet stays realistically mixed.
+
+The operator workflow mirrors the escalation envelope:
+
+- **Verification**: set a status (do weryfikacji / potwierdzony / fałszywy
+  alarm / zamknięty), assign an owner, add case notes; every change lands in
+  an append-only audit log and in the case history.
+- **Evidence**: the full `cascadeEnvelope` — event, 28 features, per-model
+  scores with latencies, model errors, baseline anomaly, policy digest. The
+  UI states plainly that scores are a verification hint, not a verdict.
+- **Actions**: reinforce observation, order an active scan, rerun model
+  analysis, and isolate the host. Isolation is **two-step and always
+  human-confirmed**; in demo mode actions are recorded in the audit trail but
+  never touch traffic, exactly as the banner says.
+
+The UI ships light and dark themes (light is the default) and is embedded in
+the binary — no build step, no JavaScript dependencies. Run it in Docker as
+the `console` service (port `127.0.0.1:18081`) with its own `console-data`
+volume; like the inbox, put it behind a TLS proxy and set `ASI_CENTRAL_TOKEN`
+before exposing it beyond loopback.
 
 ## Model interchange and the System One standard
 

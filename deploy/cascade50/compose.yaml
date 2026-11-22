@@ -71,9 +71,23 @@ services:
     command: [receive, -listen, "0.0.0.0:8080", -inbox-dir, /data/inbox]
     ports: ["127.0.0.1:18080:8080"]
     volumes: ["central-data:/data"]
+  console:
+    image: asi-console:cascade50
+    build:
+      context: ../..
+      dockerfile: deploy/cascade50/Dockerfile.console
+    read_only: true
+    tmpfs: [/tmp]
+    command: [-listen, "0.0.0.0:8080", -data-dir, /data/console, -demo]
+    environment:
+      ASI_CENTRAL_TOKEN: ${ASI_CENTRAL_TOKEN:-cascade50-lab}
+    ports: ["127.0.0.1:18081:8080"]
+    volumes: ["console-data:/data"]
   gate:
     <<: *edge
     profiles: [tools]
+    environment:
+      ASI_CENTRAL_TOKEN: ${ASI_CENTRAL_TOKEN:-cascade50-lab}
     volumes:
       - ../../deploy/cascade50:/work/deploy/cascade50:ro
       - ../../models:/work/models:ro
@@ -83,7 +97,7 @@ services:
         target: /input
         read_only: true
         bind: {create_host_path: false}
-    command: [gate, -sensor-id, lab, -input, /input/events.jsonl, -follow, -outbox-dir, /data/outbox, -central-url, "http://central:8080/events", -basal-url, "http://basal:8000/v1/systemone", -laya-url, "http://laya:8000/v1/systemone", -kev-url, "http://kev:8000/v1/systemone"]
+    command: [gate, -sensor-id, lab, -input, /input/events.jsonl, -follow, -outbox-dir, /data/outbox, -central-url, "http://console:8080/events", -basal-url, "http://basal:8000/v1/systemone", -laya-url, "http://laya:8000/v1/systemone", -kev-url, "http://kev:8000/v1/systemone"]
   # Downloads the weights listed in models/manifest.json (pinned Hugging Face
   # revisions, SHA256-checked). run.sh runs it as the invoking user so the
   # files in models/ belong to them.
@@ -108,3 +122,4 @@ services:
 volumes:
   central-data:
   edge-data:
+  console-data:

@@ -2,6 +2,9 @@ bin/
 sensor-state.json
 *.pcap
 var/
+.design-extract/
+*.kui.fig
+.kimi-design/
 
 # Model weights: fetched by `edgegate fetch-models` (make cascade50-models),
 # pinned and verified by models/manifest.json; never committed.

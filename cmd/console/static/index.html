@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silence on the Wire — konsola operatora</title>
+<style>
+:root {
+  --bg: #f4f5f6; --panel: #ffffff; --panel-2: #fafbfc; --border: #dde1e6; --border-strong: #c9cfd6;
+  --text: #1c2430; --muted: #67707c; --faint: #9aa3ad;
+  --accent: #0e9e6e; --accent-soft: #e3f5ee; --accent-text: #0a7a56;
+  --warn: #b97a17; --warn-soft: #fbf1de;
+  --danger: #c63e3e; --danger-soft: #fbe7e7;
+  --info: #3165c9; --info-soft: #e6eefb;
+  --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --shadow: 0 1px 2px rgba(20,30,45,.06);
+  --skeleton: #e8ebee;
+}
+html[data-theme="dark"] {
+  --bg: #0a0f1a; --panel: #101827; --panel-2: #0d1420; --border: #1c2942; --border-strong: #2a3a58;
+  --text: #c9d4e5; --muted: #7c8aa0; --faint: #4d5b72;
+  --accent: #35c48d; --accent-soft: #0f2b22; --accent-text: #5ad8a8;
+  --warn: #e8a13c; --warn-soft: #2e2410;
+  --danger: #e05c5c; --danger-soft: #331616;
+  --info: #6f9be8; --info-soft: #152238;
+  --shadow: none;
+  --skeleton: #16202f;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+button { font: inherit; cursor: pointer; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+a { color: var(--info); text-decoration: none; }
+
+.topbar { display: flex; align-items: center; gap: 16px; padding: 0 24px; height: 56px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+.brand { display: flex; align-items: baseline; gap: 10px; }
+.brand .logo { color: var(--accent); font-size: 18px; }
+.brand b { font-size: 15px; letter-spacing: .2px; }
+.brand span { color: var(--muted); font-size: 12px; }
+.topbar .spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; color: var(--muted); background: var(--panel-2); }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; }
+.dot.green { background: var(--accent); } .dot.red { background: var(--danger); } .dot.orange { background: var(--warn); } .dot.gray { background: var(--faint); }
+.demo-badge { border: 1px dashed var(--warn); color: var(--warn); padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; letter-spacing: .8px; }
+.clock { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.user { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--info-soft); color: var(--info); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; border: 1px solid var(--border); }
+.theme-toggle { background: none; border: 1px solid var(--border); border-radius: 8px; width: 34px; height: 34px; font-size: 15px; color: var(--muted); }
+.theme-toggle:hover { color: var(--text); border-color: var(--border-strong); }
+
+.tabs { display: flex; gap: 4px; padding: 12px 24px 0; }
+.tab { padding: 8px 16px; border-radius: 8px 8px 0 0; border: 1px solid transparent; border-bottom: none; color: var(--muted); background: none; font-weight: 500; }
+.tab.active { color: var(--text); background: var(--panel); border-color: var(--border); }
+.page { padding: 0 24px 48px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0; }
+.card { padding: 14px 16px; }
+.card .label { font-size: 11px; letter-spacing: .8px; color: var(--muted); display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.card .value { font-size: 30px; font-weight: 700; margin-top: 4px; }
+.card .sub { font-size: 11px; color: var(--faint); margin-top: 2px; }
+
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 16px 0 12px; }
+.filters input[type="search"] { min-width: 260px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent-text); background: var(--accent-soft); font-size: 12px; }
+.chip button { background: none; border: none; color: inherit; font-weight: 700; }
+
+.banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--danger); background: var(--danger-soft); color: var(--danger); margin: 16px 0; }
+.banner .grow { flex: 1; color: var(--text); }
+.banner small { color: var(--muted); display: block; }
+.btn { padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-weight: 500; }
+.btn:hover { border-color: var(--border-strong); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { border-color: var(--danger); color: var(--danger); background: none; }
+.btn.danger.armed { background: var(--danger); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 11px; letter-spacing: .8px; color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--panel-2); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.muted { color: var(--muted); }
+.score { font-family: var(--mono); font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .4px; }
+.badge.nowe { background: var(--accent-soft); color: var(--accent-text); }
+.badge.do_weryfikacji { background: var(--warn-soft); color: var(--warn); }
+.badge.potwierdzony { background: var(--danger-soft); color: var(--danger); }
+.badge.falszywy_alarm { background: var(--info-soft); color: var(--info); }
+.badge.zamkniety { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+
+.pager { display: flex; align-items: center; gap: 12px; justify-content: flex-end; padding: 12px 14px; color: var(--muted); font-size: 12px; }
+.pager button { padding: 5px 12px; }
+
+.empty { text-align: center; padding: 80px 20px; }
+.empty .waves { color: var(--faint); margin-bottom: 16px; }
+.empty h3 { font-size: 18px; margin-bottom: 8px; }
+.empty p { color: var(--muted); margin-bottom: 20px; }
+
+.skeleton { padding: 16px; }
+.sk { background: var(--skeleton); border-radius: 6px; height: 16px; margin: 12px; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+
+.detail { display: grid; grid-template-columns: 1fr 420px; gap: 16px; margin-top: 16px; align-items: start; }
+@media (max-width: 1100px) { .detail { grid-template-columns: 1fr; } }
+.detail .panel { padding: 18px; }
+.detail h4 { font-size: 11px; letter-spacing: 1px; color: var(--muted); margin-bottom: 12px; }
+.kv { display: grid; grid-template-columns: 140px 1fr; row-gap: 6px; font-size: 13px; margin-bottom: 14px; }
+.kv dt { color: var(--muted); } .kv dd { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+.score-row { display: grid; grid-template-columns: 70px 1fr 60px 60px; gap: 10px; align-items: center; margin: 8px 0; font-size: 12.5px; }
+.score-row .bar { height: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.score-row .bar i { display: block; height: 100%; background: var(--accent); }
+.note-box textarea { width: 100%; min-height: 70px; resize: vertical; margin-bottom: 10px; }
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.status-grid .btn.sel { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.actions { display: grid; gap: 8px; margin-top: 12px; }
+.fineprint { font-size: 11.5px; color: var(--faint); margin-top: 8px; }
+.history { margin-top: 4px; }
+.history .hrow { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.history .hrow:last-child { border-bottom: none; }
+.history .hdot { margin-top: 6px; }
+.history .hmeta { color: var(--faint); font-size: 11.5px; font-family: var(--mono); }
+.features { margin-top: 10px; }
+.features summary { cursor: pointer; color: var(--info); font-size: 13px; }
+.features table { margin-top: 8px; }
+.features td { padding: 5px 10px; font-size: 12px; }
+.loading-line { padding: 24px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">∿</span>
+    <b>Silence on the Wire</b>
+    <span>defensywny monitoring sieci</span>
+  </div>
+  <nav class="tabs" style="padding:0">
+    <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
+    <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
+  </nav>
+  <div class="spacer"></div>
+  <button class="theme-toggle" id="themeToggle" title="Przełącz motyw">☾</button>
+  <span class="demo-badge" id="demoBadge" hidden>DANE DEMO</span>
+  <span class="pill" id="sensorPill"><span class="dot gray"></span> Sensor: …</span>
+  <span class="clock" id="clock">akt. --:--:--</span>
+  <div class="user"><span class="avatar">MK</span> M. Kowalska</div>
+</header>
+
+<main class="page" id="app"></main>
+
+<script>
+const $ = (sel, el=document) => el.querySelector(sel);
+const api = (path, opts) => fetch(path, opts).then(async r => {
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+  return r.status === 204 ? null : r.json();
+});
+const post = (path, body) => api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtTime = t => t ? new Date(t).toLocaleTimeString('pl-PL', {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+const fmtDateTime = t => t ? new Date(t).toLocaleString('pl-PL', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+
+const STATUS = {
+  nowe:           {label:'NOWE',           dot:'green'},
+  do_weryfikacji: {label:'DO WERYFIKACJI', dot:'orange'},
+  potwierdzony:   {label:'POTWIERDZONE',   dot:'red'},
+  falszywy_alarm: {label:'FAŁSZYWE ALARMY',dot:'gray'},
+  zamkniety:      {label:'ZAMKNIĘTE',      dot:'gray'},
+};
+const STATUS_BTN = {nowe:'Nowy', do_weryfikacji:'Do weryfikacji', potwierdzony:'Potwierdzony', falszywy_alarm:'Fałszywy alarm', zamkniety:'Zamknięty'};
+
+// --- theme -----------------------------------------------------------------
+const themeBtn = $('#themeToggle');
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  themeBtn.textContent = t === 'dark' ? '☀' : '☾';
+  localStorage.setItem('sotw-theme', t);
+}
+applyTheme(localStorage.getItem('sotw-theme') || 'light');
+themeBtn.onclick = () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+
+// --- state -----------------------------------------------------------------
+const state = {
+  sensors: [], summary: null,
+  alerts: {items: [], total: 0, page: 1, per_page: 20},
+  filters: {q: '', sensor: '', type: '', status: ''},
+  sensorFilters: {q: '', status: ''},
+  sensorPage: 1,
+  loading: true, sensorOnline: null, error: null,
+};
+const ACTOR = 'M. Kowalska';
+
+function go(hash) { location.hash = hash; }
+window.addEventListener('hashchange', render);
+
+// --- data loading ----------------------------------------------------------
+async function refresh() {
+  try {
+    const [summary, sensors] = await Promise.all([
+      api('/api/summary'), api('/api/sensors?per_page=200'),
+    ]);
+    state.summary = summary;
+    state.sensors = sensors.items;
+    state.sensorOnline = summary.sensors.offline === 0 ? true : (summary.sensors.online > 0 ? 'partial' : false);
+    $('#demoBadge').hidden = !summary.demo;
+    updatePill();
+    state.error = null;
+  } catch (e) {
+    state.error = e.message;
+    state.sensorOnline = false;
+    updatePill();
+  }
+  state.loading = false;
+}
+function updatePill() {
+  const p = $('#sensorPill');
+  const s = state.summary?.sensors;
+  if (state.sensorOnline === true) p.innerHTML = `<span class="dot green"></span> Sensory: połączone (${s.online}/${s.total})`;
+  else if (state.sensorOnline === 'partial') p.innerHTML = `<span class="dot orange"></span> Sensory: ${s.online}/${s.total} online`;
+  else p.innerHTML = `<span class="dot red"></span> Sensory: brak połączenia`;
+}
+async function loadAlerts() {
+  const f = state.filters;
+  const params = new URLSearchParams({page: state.alerts.page, per_page: state.alerts.per_page});
+  for (const k of ['q','sensor','type','status']) if (f[k]) params.set(k, f[k]);
+  state.alerts = await api('/api/alerts?' + params);
+}
+
+// --- shared fragments ------------------------------------------------------
+const badge = st => `<span class="badge ${st}"><span class="dot ${STATUS[st]?.dot||'gray'}"></span>${STATUS_BTN[st]||st}</span>`;
+const pager = (cur, total, per, onpage) => {
+  const pages = Math.max(1, Math.ceil(total / per));
+  return `<div class="pager">
+    <span>Strona ${cur} z ${pages} · ${total} rekordów</span>
+    <button class="btn" ${cur<=1?'disabled':''} onclick="${onpage}(${cur-1})">←</button>
+    <button class="btn" ${cur>=pages?'disabled':''} onclick="${onpage}(${cur+1})">→</button>
+  </div>`;
+};
+const emptyState = (withFilters) => `
+  <div class="empty">
+    <div class="waves"><svg width="120" height="24" viewBox="0 0 120 24" fill="none" stroke="currentColor"><path d="M0 12 H50 L55 4 L60 20 L65 12 H120" stroke-width="1.5"/></svg></div>
+    <h3>Cisza na linii</h3>
+    <p>${withFilters ? 'Żaden alert nie pasuje do wybranych filtrów. Nic nie wymaga Twojej uwagi.' : 'Brak alertów. Nic nie wymaga Twojej uwagi.'}</p>
+    ${withFilters ? '<button class="btn primary" onclick="clearFilters()">Wyczyść filtry</button>' : ''}
+  </div>`;
+const skeleton = () => `
+  <div class="loading-line"><span class="spinner"></span> Łączenie z sensorami…</div>
+  <div class="cards">${'<div class="panel card skeleton"><div class="sk" style="width:50%"></div><div class="sk" style="width:30%;height:26px"></div></div>'.repeat(4)}</div>
+  <div class="panel skeleton">${'<div class="sk"></div>'.repeat(8)}</div>`;
+
+function clearFilters() {
+  state.filters = {q:'', sensor:'', type:'', status:''};
+  state.alerts.page = 1;
+  render();
+}
+
+// --- alerts list -----------------------------------------------------------
+async function viewAlerts() {
+  const app = $('#app');
+  if (state.loading) { app.innerHTML = skeleton(); return; }
+  await loadAlerts();
+  const cards = state.summary?.cards || {};
+  const f = state.filters;
+  const offlineSensor = f.sensor && state.sensors.find(x => x.id === f.sensor && !x.online);
+  const sensorOptions = state.sensors.map(s => `<option value="${esc(s.id)}" ${f.sensor===s.id?'selected':''}>${esc(s.id)}${s.online?'':' (offline)'}</option>`).join('');
+  const types = [...new Set(state.alerts.items.map(i => i.event_type))];
+  const hasFilters = f.q || f.sensor || f.type || f.status;
+
+  app.innerHTML = `
+    ${offlineSensor ? `<div class="banner">⚠ <div class="grow"><b>Utracono połączenie z sensorem ${esc(f.sensor)}</b><small>Ostatni kontakt ${fmtDateTime(offlineSensor.last_seen)}. Dane poniżej mogą być nieaktualne.</small></div><button class="btn danger" onclick="render()">Połącz ponownie</button></div>` : ''}
+    <div class="cards">
+      ${Object.entries(STATUS).filter(([k])=>k!=='falszywy_alarm'||cards[k]).map(([k,v]) => `
+        <div class="panel card" style="cursor:pointer" onclick="filterStatus('${k}')">
+          <div class="label"><span class="dot ${v.dot}"></span> ${v.label}</div>
+          <div class="value">${cards[k] ?? 0}</div>
+          <div class="sub">stan na ${fmtTime(state.summary?.updated_at)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="filters">
+      <input type="search" placeholder="Szukaj hosta, adresu, typu anomalii…" value="${esc(f.q)}" oninput="state.filters.q=this.value" onchange="applyFilters()">
+      <select onchange="state.filters.sensor=this.value;applyFilters()">
+        <option value="">Wszystkie sensory (${state.sensors.length})</option>${sensorOptions}
+      </select>
+      <select onchange="state.filters.type=this.value;applyFilters()">
+        <option value="">Wszystkie zdarzenia</option>
+        ${['service_changed','service_new','host_new','host_silent','service_silent','host_back','service_closed','service_back'].map(t=>`<option ${f.type===t?'selected':''}>${t}</option>`).join('')}
+      </select>
+      ${f.status ? `<span class="chip">Status: ${STATUS_BTN[f.status]} <button onclick="filterStatus('')">✕</button></span>` : ''}
+      ${f.type ? `<span class="chip">Zdarzenie: ${esc(f.type)} <button onclick="state.filters.type='';applyFilters()">✕</button></span>` : ''}
+    </div>
+    <div class="panel">
+      ${state.alerts.total === 0 ? emptyState(hasFilters) : `
+      <table>
+        <thead><tr><th>CZAS</th><th>SENSOR</th><th>ZDARZENIE</th><th>ŹRÓDŁO → CEL</th><th>OCENA</th><th>STATUS</th></tr></thead>
+        <tbody>
+          ${state.alerts.items.map(a => `
+            <tr onclick="go('#/alerta/${a.event_id}')" ${offlineSensor?'style="opacity:.6"':''}>
+              <td class="mono">${esc(a.event_time ? fmtTime(a.event_time) : fmtTime(a.received))}</td>
+              <td class="mono muted">${esc(a.sensor_id)}</td>
+              <td class="mono">${esc(a.event_type)}</td>
+              <td class="mono">${esc(a.source)} → ${esc(a.target)}</td>
+              <td class="score">${a.score.toFixed(2)}</td>
+              <td>${badge(a.status)}${a.unresolved?' <span class="badge do_weryfikacji">unresolved</span>':''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      ${pager(state.alerts.page, state.alerts.total, state.alerts.per_page, 'gotoAlerts')}`}
+    </div>`;
+}
+function filterStatus(st) { state.filters.status = st; state.alerts.page = 1; render(); }
+function applyFilters() { state.alerts.page = 1; render(); }
+function gotoAlerts(p) { state.alerts.page = p; render(); }
+
+// --- alert detail ----------------------------------------------------------
+async function viewAlert(id) {
+  const app = $('#app');
+  app.innerHTML = skeleton();
+  let d;
+  try { d = await api('/api/alerts/' + encodeURIComponent(id)); }
+  catch (e) { app.innerHTML = `<div class="panel" style="padding:24px;margin-top:16px">Nie znaleziono alertu. <a href="#/alerty">← Wróć do listy</a></div>`; return; }
+  const c = d.case, env = d.envelope || {};
+  const scores = env.systemone_scores || {};
+  const feats = env.features || [];
+  const pending = d.pending_action === 'isolate';
+  const FEATURE_NAMES = ["host_new","host_silent","host_back","service_new","service_changed","service_closed","service_silent","service_back","risky_port","management_port","wellknown_port","has_banner","unusual_banner","changed_fingerprint","old_closed","gap_log_seconds","recent_count","recent_new_services","recent_changes","recent_silent","recent_returns","recent_distinct_ports","host_seen_before","service_event","hour_sin","hour_cos","repeated_port","previous_silent"];
+
+  app.innerHTML = `
+    <div style="margin-top:16px"><a href="#/alerty">← Wszystkie alerty</a></div>
+    <div class="detail">
+      <div>
+        <div class="panel">
+          <h4>ZDARZENIE · rekord cascadeEnvelope</h4>
+          <dl class="kv">
+            <dt>Czas</dt><dd>${esc(env.event?.time || c.event_time)}</dd>
+            <dt>Typ</dt><dd>${esc(c.event_type)}</dd>
+            <dt>Host</dt><dd>${esc(c.source)}</dd>
+            <dt>Cel</dt><dd>${esc(c.target)}</dd>
+            <dt>Sensor</dt><dd>${esc(c.sensor_id)}</dd>
+            ${env.event?.old ? `<dt>Zmiana</dt><dd>${esc(env.event.old)} → ${esc(env.event.new)}</dd>` : ''}
+            ${env.event?.banner ? `<dt>Banner</dt><dd>${esc(env.event.banner)}</dd>` : ''}
+            <dt>Powód eskalacji</dt><dd>${esc(c.reason)}${c.unresolved ? ' · zdarzenie nierozstrzygnięte — weryfikacja dotyczy stanu systemu' : ''}</dd>
+            <dt>Polityka</dt><dd>${esc((env.policy_sha256||'').slice(0,16))}… · budżet ${env.validation_budget ?? '—'}</dd>
+          </dl>
+          <h4>OCENY MODELI</h4>
+          ${Object.entries(scores).map(([name, s]) => `
+            <div class="score-row">
+              <span class="mono">${esc(name)}</span>
+              <span class="bar"><i style="width:${Math.round((s.score||0)*100)}%"></i></span>
+              <span class="score">${(s.score||0).toFixed(2)}</span>
+              <span class="muted mono">${s.latency_ms ?? '—'} ms</span>
+            </div>`).join('') || '<p class="muted">Brak ocen zdalnych — eskalacja z szybkiego etapu lub błąd wejścia.</p>'}
+          ${Object.keys(env.systemone_errors||{}).length ? `<p class="muted" style="margin-top:8px">Błędy modeli: ${esc(JSON.stringify(env.systemone_errors))}</p>` : ''}
+          <p class="fineprint">Ocena ryzyka jest wskazówką do weryfikacji, nie werdyktem. Sygnatura jest rzadka (anomalia bazowa ${env.baseline_anomaly ?? '—'}), a ranking zdalny został skalibrowany na danych syntetycznych.</p>
+          <details class="features">
+            <summary>Pokaż wszystkie ${feats.length} cech</summary>
+            <table><tbody>
+              ${feats.map((v,i) => `<tr><td class="mono muted">${FEATURE_NAMES[i]||'f'+i}</td><td class="mono">${(+v).toFixed(4)}</td></tr>`).join('')}
+            </tbody></table>
+          </details>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h4>HISTORIA SPRAWY</h4>
+          <div class="history">
+            ${(d.history||[]).map(h => `
+              <div class="hrow">
+                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
+                <div><div>${esc(h.text)}</div><div class="hmeta">${fmtDateTime(h.at)} · ${esc(h.actor)}</div></div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <h4>WERYFIKACJA</h4>
+          <dl class="kv">
+            <dt>Status</dt><dd>${badge(c.status)}</dd>
+            <dt>Przypisany</dt><dd style="font-family:inherit">${esc(c.assignee || '—')}</dd>
+          </dl>
+          <div class="status-grid">
+            ${['do_weryfikacji','potwierdzony','falszywy_alarm','zamkniety'].map(st => `
+              <button class="btn ${c.status===st?'sel':''}" onclick="setStatus('${c.event_id}','${st}')">${STATUS_BTN[st]}</button>`).join('')}
+          </div>
+          <div class="note-box">
+            <textarea id="noteText" placeholder="Dodaj notatkę do sprawy…"></textarea>
+            <button class="btn primary" style="width:100%" onclick="addNote('${c.event_id}')">Zapisz notatkę</button>
+          </div>
+          <div class="actions">
+            <button class="btn" onclick="runAction('${c.event_id}','observe')">👁 Wzmocnij obserwację hosta</button>
+            <button class="btn" onclick="runAction('${c.event_id}','scan')">📡 Zleć aktywny skan hosta</button>
+            <button class="btn" onclick="runAction('${c.event_id}','reanalyze')">↻ Ponów analizę modeli</button>
+            <button class="btn danger ${pending?'armed':''}" id="isolateBtn" onclick="runAction('${c.event_id}','isolate')">⊘ ${pending?'Potwierdź: odetnij hosta od sieci':'Odetnij hosta od sieci'}</button>
+          </div>
+          <p class="fineprint">Akcja odcięcia jest dwustopniowa i zawsze potwierdzana przez człowieka. ${state.summary?.demo ? 'Prototyp działa w trybie demo i nie zmienia ruchu.' : ''}</p>
+        </div>
+      </div>
+    </div>`;
+}
+async function setStatus(id, st) { await post(`/api/alerts/${id}/status`, {status: st, actor: ACTOR}); render(); }
+async function addNote(id) {
+  const t = $('#noteText').value.trim();
+  if (!t) return;
+  await post(`/api/alerts/${id}/notes`, {text: t, actor: ACTOR});
+  render();
+}
+async function runAction(id, action) {
+  const armed = action === 'isolate' && document.getElementById('isolateBtn')?.classList.contains('armed');
+  await post(`/api/alerts/${id}/actions`, {action, actor: ACTOR, confirm: armed});
+  render();
+}
+
+// --- sensors fleet ---------------------------------------------------------
+async function viewSensors() {
+  const app = $('#app');
+  if (state.loading) { app.innerHTML = skeleton(); return; }
+  const f = state.sensorFilters;
+  const params = new URLSearchParams({page: state.sensorPage, per_page: 25});
+  if (f.q) params.set('q', f.q);
+  if (f.status) params.set('status', f.status);
+  const data = await api('/api/sensors?' + params);
+  const s = state.summary?.sensors || {total:0, online:0, offline:0};
+  app.innerHTML = `
+    <div class="cards" style="grid-template-columns:repeat(3,1fr)">
+      <div class="panel card"><div class="label">FLOTA SENSORÓW</div><div class="value">${s.total}</div><div class="sub">edge sensors</div></div>
+      <div class="panel card"><div class="label"><span class="dot green"></span> ONLINE</div><div class="value">${s.online}</div><div class="sub">kontakt &lt; 90 s</div></div>
+      <div class="panel card"><div class="label"><span class="dot red"></span> OFFLINE</div><div class="value">${s.offline}</div><div class="sub">wymagają reakcji</div></div>
+    </div>
+    <div class="filters">
+      <input type="search" placeholder="Szukaj sensora…" value="${esc(f.q)}" oninput="state.sensorFilters.q=this.value" onchange="render()">
+      <select onchange="state.sensorFilters.status=this.value;render()">
+        <option value="">Wszyscy</option>
+        <option value="online" ${f.status==='online'?'selected':''}>Online</option>
+        <option value="offline" ${f.status==='offline'?'selected':''}>Offline</option>
+      </select>
+    </div>
+    <div class="panel">
+      ${data.total === 0 ? emptyState(true) : `
+      <table>
+        <thead><tr><th>SENSOR</th><th>STATUS</th><th>OSTATNI KONTAKT</th><th>NOWE</th><th>DO WERYF.</th><th>POTW.</th><th>ZAMKN.</th></tr></thead>
+        <tbody>
+          ${data.items.map(x => `
+            <tr onclick="state.filters.sensor='${esc(x.id)}';go('#/alerty')">
+              <td class="mono">${esc(x.id)}</td>
+              <td>${x.online ? '<span class="badge nowe"><span class="dot green"></span>online</span>' : '<span class="badge potwierdzony"><span class="dot red"></span>offline</span>'}</td>
+              <td class="mono muted">${fmtDateTime(x.last_seen)}</td>
+              <td>${x.counts.nowe||0}</td><td>${x.counts.do_weryfikacji||0}</td><td>${x.counts.potwierdzony||0}</td><td>${(x.counts.zamkniety||0)+(x.counts.falszywy_alarm||0)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      ${pager(data.page, data.total, data.per_page, 'gotoSensors')}`}
+    </div>`;
+}
+function gotoSensors(p) { state.sensorPage = p; render(); }
+
+// --- router ----------------------------------------------------------------
+async function render() {
+  const h = location.hash || '#/alerty';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
+    h.startsWith('#/sensory') ? t.dataset.nav === 'sensory' : t.dataset.nav === 'alerty'));
+  if (h.startsWith('#/sensory')) return viewSensors();
+  if (h.startsWith('#/alerta/')) return viewAlert(decodeURIComponent(h.slice(9)));
+  return viewAlerts();
+}
+
+setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
+setInterval(async () => { await refresh(); if (!location.hash.startsWith('#/alerta/')) render(); }, 10000);
+
+(async () => { await refresh(); render(); })();
+</script>
+</body>
+</html>
