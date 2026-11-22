@@ -26,7 +26,7 @@ sensor, który budzi skan tam, gdzie coś się zmieniło, i konsola operatora z 
 
 | Co | Gdzie |
 |---|---|
-| **Demo na żywo** | <https://silent.zjadlabymciastko.net>, konto `jury` (tylko odczyt, hasło od zespołu). Na czas oceny adres otwiera się od razu na ekranie logowania konsoli; poza nim stoi przed nim Cloudflare Access |
+| **Demo** | Publiczne demo działało na czas oceny i zostało wyłączone 2026-11-22. Lokalnie: [docs/DEMO.md, część B](docs/DEMO.md#b-lokalnie-z-terminala); własna instancja: [deploy/demo](deploy/demo/README.md) |
 | **Prezentacja** (10 slajdów) | [PDF](docs/slides/silence-on-the-wire.pdf) |
 | **Scenariusz demo** (co kliknąć, czego się spodziewać) | [docs/DEMO.md](docs/DEMO.md) |
 | **Dokumentacja techniczna**, odpowiedzi na trzy pytania z zadania | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [sekcja 6](docs/ARCHITECTURE.md#6-odpowiedzi-na-pytania-z-zadania) |

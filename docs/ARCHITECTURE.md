@@ -295,11 +295,11 @@ Nakładka dodaje: `traffic` (ruch w tle), `flapper` (nginx up/down co `FLAP_UP`/
 `sensor` (`-i 'br-*'`, `-learn 30s`, `-silent-after 60s`, tylko `CAP_NET_RAW`) i `trigger` (`-allow 172.16.0.0/12`,
 `127.0.0.1:8099`). Własne małe laboratorium: `make lab-up` (`lab/docker-compose.yml`, mostek `br-asilab`, `172.28.0.0/24`).
 
-**Publiczne demo** (`deploy/demo/`, opis w `deploy/demo/README.md`): <https://silent.zjadlabymciastko.net>. Jedna VM
+**Publiczne demo** (`deploy/demo/`, opis w `deploy/demo/README.md`), wyłączone po ocenie 2026-11-22. Jedna VM
 (Proxmox), jeden projekt compose; konsola w trybie demo+live (syntetyczna flota plus prawdziwe zdarzenia), dostępna wyłącznie
-przez Cloudflare Tunnel; na hoście nie jest publikowany żaden port. Poza czasem oceny przed konsolą stoi Cloudflare Access
+przez Cloudflare Tunnel; na hoście nie jest publikowany żaden port. Przed konsolą stał Cloudflare Access
 (jednorazowy PIN na e-mail), na czas oceny wyłączony. Na tej
-samej VM działa lab AGH z sensorem i triggerem (profil `lab`); aktualizacja przez `docker compose pull` co 5 min
+samej VM działał lab AGH z sensorem i triggerem (profil `lab`); aktualizacja przez `docker compose pull` co 5 min
 (timer systemd), obrazy z CI. Konta: `admin` (administracja) i `jury` (rola `viewer`, tylko odczyt); hasła w
 `secrets/`, nie w repozytorium. Klucze Shodan/Censys/NVD są opcjonalne i czytane tylko ze zmiennych środowiskowych.
 Scenariusz pokazu krok po kroku: [`DEMO.md`](DEMO.md).

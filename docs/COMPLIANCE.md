@@ -79,7 +79,7 @@ kontrolnego, `internal/schedule`) — **jest w CLI, brak w UI konsoli**.
 |---|---|---|
 | Repozytorium kodu | `Inner-Savages/silence-on-the-wire`, CI buduje 5 obrazów (`sensor`, `traffic`, `scanner`, `trigger`, `console`) | jest |
 | Dokumentacja techniczna | `README.md`, `docs/ARCHITECTURE.md`, `docs/DEMO.md`, `deploy/demo/README.md`, `lab/*/README.md` | jest |
-| Prezentacja do 10 slajdów z demo | `docs/slides/deck.md` (10 slajdów) i `silence-on-the-wire.pdf` z notatkami; demo: <https://silent.zjadlabymciastko.net> lub lokalnie wg `DEMO.md` | jest |
+| Prezentacja do 10 slajdów z demo | `docs/slides/deck.md` (10 slajdów) i `silence-on-the-wire.pdf` z notatkami; demo lokalnie wg `DEMO.md` (publiczne wyłączone po ocenie 2026-11-22) | jest |
 | Technologie (Go, niskie zużycie zasobów) | Go 1.26; sensor libpcap | jest |
 
 ## 5. Kryteria testowe organizatorów (sekcja 6) — ocena gotowości

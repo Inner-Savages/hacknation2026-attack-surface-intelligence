@@ -1,9 +1,11 @@
-# Public demo: https://silent.zjadlabymciastko.net
+# Public demo
+
+> The public instance was shut down on 2026-11-22, after the judging. This guide sets up your
+> own; replace `demo.example.com` with your hostname.
 
 One VM, one compose project. The operator console runs in demo+live mode
 (synthetic fleet plus real events) and is reachable **only** through a Cloudflare
-Tunnel, normally gated by Cloudflare Access (one-time PIN; bypassed while the jury is
-judging). No port is published on the host. Console accounts are created by the
+Tunnel, normally gated by Cloudflare Access (one-time PIN). No port is published on the host. Console accounts are created by the
 operator; self-registration is off.
 
 ```
@@ -26,7 +28,7 @@ The images on ghcr.io are public, no registry login is needed.
 ## 2. Cloudflare (dashboard, once)
 
 1. Zero Trust > Networks > Tunnels > create a tunnel (cloudflared), copy the **token**.
-2. Public hostname `silent.zjadlabymciastko.net` -> service `http://console:18081`
+2. Public hostname `demo.example.com` -> service `http://console:18081`
    (ingress is managed remotely, nothing to configure in this repo).
 3. Zero Trust > Access > Applications: self-hosted app for that hostname, policy
    "Allow" with the jury/team e-mails, login method One-time PIN.
@@ -160,7 +162,7 @@ The default silence threshold is 60 min; for the demo lower it once and run the
 scans (admin session cookie in `cj`):
 
 ```bash
-C=https://silent.zjadlabymciastko.net
+C=https://demo.example.com
 curl -s -b cj -XPOST -H 'Content-Type: application/json' -d '{"gt_silent_min":1}' $C/api/config
 curl -s -b cj -XPOST $C/api/groundtruth/run; sleep 15
 curl -s -b cj -XPOST $C/api/tls/run;         sleep 3

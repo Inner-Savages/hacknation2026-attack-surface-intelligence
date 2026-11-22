@@ -11,8 +11,10 @@ sprawdzono: [na końcu](#co-sprawdzono).
 
 ## A. Publiczne demo: co klika jury
 
-Adres: <https://silent.zjadlabymciastko.net>. Na czas oceny od razu pojawia się ekran logowania konsoli (poza nim najpierw
-Cloudflare Access z PIN-em na e-mail). Zaloguj się kontem `jury` (rola `viewer`, tylko odczyt; hasło od zespołu).
+> Publiczne demo zostało wyłączone po ocenie 2026-11-22. Opis poniżej dotyczy tamtej instancji; własną postawisz wg
+> [`deploy/demo/README.md`](../deploy/demo/README.md).
+
+Zaloguj się do konsoli kontem `jury` (rola `viewer`, tylko odczyt; hasło w `secrets/viewer_password`).
 Samorejestracja jest wyłączona. Zakładki wybiera się z menu obok nazwy projektu, na starcie „Alerty ▾”.
 
 Konsola łączy **flotę syntetyczną** (137 sensorów, 217 spraw) z **prawdziwymi zdarzeniami** z laboratorium AGH
