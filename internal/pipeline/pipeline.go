@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/Inner-Savages/silence-on-the-wire/internal/fingerprint"
@@ -33,31 +34,52 @@ func (c *Config) logf(format string, args ...any) {
 	}
 }
 
-// Run scans the targets. On interruption it returns the partial result
-// together with the context error.
+// Run scans the targets. Every chunk is probed and fingerprinted before it
+// counts as finished, so whatever an interrupted scan returns is complete
+// for the targets it covers. On interruption it returns that partial result
+// together with the error.
 func (c *Config) Run(ctx context.Context, t *scan.Targets) (*result.Scan, error) {
-	res, err := c.Scanner.Scan(ctx, t)
-	if res == nil || ctx.Err() != nil {
-		return res, err
-	}
+	s := c.Scanner
 	par := c.ProbeParallel
 	if par <= 0 {
 		par = 8
 	}
 	prober := &probe.Prober{Timeout: c.ProbeTimeout}
-	if !c.SkipProbe {
-		start := time.Now()
-		n := prober.ProbeScan(ctx, res, par)
-		c.logf("probed %d web services in %v", n, time.Since(start).Round(time.Millisecond))
-	}
-	if !c.SkipFingerprint && c.Engine != nil && ctx.Err() == nil {
-		start := time.Now()
-		var fetcher fingerprint.Fetcher
-		if !c.SkipProbe && !c.SkipFingerprintPaths {
-			fetcher = prober
+	fp := !c.SkipFingerprint && c.Engine != nil
+	// Chunks take turns, so ProbeParallel bounds the whole scan.
+	var mu sync.Mutex
+	var probed int
+	var probeTime, fpTime time.Duration
+	if !c.SkipProbe || fp {
+		s.Post = func(ctx context.Context, hosts []result.Host) {
+			mu.Lock()
+			defer mu.Unlock()
+			part := &result.Scan{Hosts: hosts}
+			if !c.SkipProbe {
+				start := time.Now()
+				probed += prober.ProbeScan(ctx, part, par)
+				probeTime += time.Since(start)
+			}
+			if fp && ctx.Err() == nil {
+				start := time.Now()
+				var fetcher fingerprint.Fetcher
+				if !c.SkipProbe && !c.SkipFingerprintPaths {
+					fetcher = prober
+				}
+				c.Engine.Run(ctx, part, fetcher, par)
+				fpTime += time.Since(start)
+			}
 		}
-		c.Engine.Run(ctx, res, fetcher, par)
-		c.logf("fingerprinted in %v", time.Since(start).Round(time.Millisecond))
+	}
+	res, err := s.Scan(ctx, t)
+	if res == nil {
+		return nil, err
+	}
+	if !c.SkipProbe {
+		c.logf("probed %d web services in %v", probed, probeTime.Round(time.Millisecond))
+	}
+	if fp {
+		c.logf("fingerprinted in %v", fpTime.Round(time.Millisecond))
 	}
 	return res, err
 }

@@ -10,7 +10,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -19,135 +21,67 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Inner-Savages/silence-on-the-wire/internal/fingerprint"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/pipeline"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
-	"github.com/Inner-Savages/silence-on-the-wire/internal/scan"
 )
 
 func main() {
 	log.SetFlags(log.Ltime)
 	log.SetPrefix("scanner: ")
-	if len(os.Args) > 1 && os.Args[1] == "diff" {
-		runDiff(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "diff":
+			runDiff(os.Args[2:])
+			return
+		}
 	}
-	var (
-		targetList  = flag.String("t", "", "targets: IPs, CIDRs, hostnames (comma/space separated)")
-		targetFile  = flag.String("f", "", "file with targets, one or more per line, '#' comments")
-		allow       = flag.String("allow", "", "only allow IP targets inside these CIDRs (comma separated)")
-		ports       = flag.String("p", "", "ports, e.g. 22,80,8000-8100 (default: nmap top ports)")
-		topPorts    = flag.Int("top-ports", 1000, "number of most common ports when -p is not set")
-		syn         = flag.Bool("sS", false, "SYN scan (needs CAP_NET_RAW) instead of TCP connect")
-		skipPing    = flag.Bool("Pn", false, "skip host discovery, treat all targets as up")
-		maxRate     = flag.Int("max-rate", 300, "max packets per second per nmap process (0 = nmap default)")
-		intensity   = flag.Int("version-intensity", 5, "nmap -sV intensity 0-9")
-		hostTimeout = flag.Duration("host-timeout", 5*time.Minute, "give up on a single host after this long")
-		chunkSize   = flag.Int("chunk", 256, "targets per nmap process")
-		parallel    = flag.Int("parallel", 4, "concurrent nmap processes")
-		output      = flag.String("o", "", "write the JSON result here (default or \"-\": stdout)")
-		doProbe     = flag.Bool("probe", true, "probe web services found by nmap (GET only: page, same-host redirects, favicon)")
-		probePar    = flag.Int("probe-parallel", 8, "concurrent HTTP probes")
-		probeTO     = flag.Duration("probe-timeout", 10*time.Second, "timeout per HTTP request")
-		doFP        = flag.Bool("fingerprint", true, "recognize technologies with signatures")
-		fpPaths     = flag.Bool("fingerprint-paths", true, "let signatures GET fixed paths such as /wp-login.php")
-		sigFiles    = flag.String("signatures", "", "extra signature YAML files (comma separated)")
-	)
+	sf := addScanFlags(flag.CommandLine)
+	output := flag.String("o", "", "write the JSON result here (default or \"-\": stdout)")
 	flag.Parse()
-
-	var targets scan.Targets
-	if err := targets.AddList(*targetList); err != nil {
-		log.Fatal(err)
-	}
-	if *targetFile != "" {
-		f, err := os.Open(*targetFile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = targets.AddReader(f)
-		f.Close()
-		if err != nil {
-			log.Fatalf("%s: %v", *targetFile, err)
-		}
-	}
-	if targets.Len() == 0 {
-		log.Fatal("no targets: use -t or -f")
-	}
-	if *allow != "" {
-		prefixes, err := scan.ParseAllow(*allow)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err := targets.CheckAllowed(prefixes); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	// Load signatures before scanning so a broken custom file fails fast.
-	var extra []string
-	for _, f := range strings.Split(*sigFiles, ",") {
-		if f = strings.TrimSpace(f); f != "" {
-			extra = append(extra, f)
-		}
-	}
-	engine, err := fingerprint.NewEngine(extra...)
-	if err != nil {
-		log.Fatalf("signatures: %v", err)
-	}
-	cfg := pipeline.Config{
-		Scanner: scan.Scanner{
-			Options: scan.Options{
-				Ports: *ports, TopPorts: *topPorts, SYN: *syn, SkipDiscovery: *skipPing,
-				MaxRate: *maxRate, VersionIntensity: *intensity, HostTimeout: *hostTimeout,
-			},
-			ChunkSize: *chunkSize,
-			Parallel:  *parallel,
-			Progress: func(done, total int, c result.Chunk) {
-				status := "ok"
-				if c.Error != "" {
-					status = "error: " + c.Error
-				}
-				log.Printf("chunk %d/%d: %d targets, %d up, %v, %s", done, total, c.Targets, c.HostsUp, time.Duration(c.Duration).Round(time.Millisecond), status)
-			},
-		},
-		SkipProbe:            !*doProbe,
-		ProbeParallel:        *probePar,
-		ProbeTimeout:         *probeTO,
-		SkipFingerprint:      !*doFP,
-		SkipFingerprintPaths: !*fpPaths,
-		Engine:               engine,
-		Logf:                 log.Printf,
-	}
-	if err := cfg.Scanner.Options.Validate(); err != nil {
-		log.Fatal(err)
-	}
+	cfg, targets := sf.config()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("%d targets in chunks of %d, %d in parallel: nmap %s", targets.Len(), *chunkSize, *parallel, strings.Join(cfg.Scanner.Options.Args(), " "))
-	res, err := cfg.Run(ctx, &targets)
+	log.Printf("%d targets, %s: nmap %s", targets.Len(), chunking(cfg), strings.Join(cfg.Scanner.Options.Args(), " "))
+	res, err := cfg.Run(ctx, targets)
 	if res == nil {
 		log.Fatal(err)
 	}
 	if err != nil {
 		log.Printf("scan interrupted: %v (writing partial result)", err)
 	}
-
-	var w io.Writer = os.Stdout
-	if *output != "" && *output != "-" {
-		f, err := os.OpenFile(*output, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer f.Close()
-		w = f
+	if *output == "" || *output == "-" {
+		err = writeResult(os.Stdout, res)
+	} else {
+		err = writeResultFile(*output, res)
 	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(res); err != nil {
+	if err != nil {
 		log.Fatal(err)
 	}
 	up, open := pipeline.Counts(res)
 	log.Printf("done in %v: %d hosts up, %d open ports", time.Duration(res.Duration).Round(time.Millisecond), up, open)
+}
+
+func writeResult(w io.Writer, res *result.Scan) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(res)
+}
+
+func writeResultFile(path string, res *result.Scan) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	return errors.Join(writeResult(f, res), f.Close())
+}
+
+// chunking describes how targets are split, for the log.
+func chunking(cfg *pipeline.Config) string {
+	set := cfg.Scanner.Settings()
+	if set.ChunkTarget == 0 {
+		return fmt.Sprintf("chunks of %d, %d in parallel", set.ChunkSize, set.Parallel)
+	}
+	return fmt.Sprintf("chunks of about %v (first %d targets), %d in parallel", time.Duration(set.ChunkTarget), set.ChunkSize, set.Parallel)
 }
