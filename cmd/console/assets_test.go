@@ -229,3 +229,24 @@ func TestIntakeLogsTriggersClassification(t *testing.T) {
 		t.Fatalf("expected one asset_new case, got %+v", cases)
 	}
 }
+
+// RBAC: asset inventory is read-only; every built-in role (viewer included)
+// reads it, anonymous callers get 401, and no write method exists.
+func TestAssetEndpointsRBAC(t *testing.T) {
+	s, _, adminTok := testServer(t)
+	h := s.routes()
+	viewer := userWithRole(t, s, "vera", "viewer")
+	for _, tok := range []string{viewer, adminTok} {
+		if w := call(t, h, "GET", "/api/assets", "", tok); w.Code != 200 {
+			t.Errorf("GET /api/assets = %d, want 200", w.Code)
+		}
+	}
+	if w := call(t, h, "GET", "/api/assets", "", ""); w.Code != 401 {
+		t.Errorf("anonymous GET /api/assets = %d, want 401", w.Code)
+	}
+	for _, m := range []string{"POST", "PUT", "DELETE"} {
+		if w := call(t, h, m, "/api/assets", `{}`, viewer); w.Code < 400 || w.Code == 200 {
+			t.Errorf("viewer %s /api/assets = %d, want error", m, w.Code)
+		}
+	}
+}
