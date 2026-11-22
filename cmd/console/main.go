@@ -74,10 +74,18 @@ func main() {
 		log.Fatalf("open exposure state: %v", err)
 	}
 	srv.exposure = expo
+	// TLS certificate monitoring over the certs control scans capture:
+	// expiry 30/14/7, self-signed, CA changes, weak crypto.
+	tlsMon, err := newTLSMonitor(*dataDir, store, feed, cfg, gt)
+	if err != nil {
+		log.Fatalf("open tls state: %v", err)
+	}
+	srv.tlsMon = tlsMon
 	go func() {
 		for range time.Tick(time.Minute) {
 			gt.tick()
 			expo.tick()
+			tlsMon.tick()
 		}
 	}()
 	go func() {

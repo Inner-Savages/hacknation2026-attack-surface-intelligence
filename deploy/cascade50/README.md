@@ -424,6 +424,37 @@ shadow IT and accidental exposures live:
   triggers a check. Everything is fail-soft: no key or no network is a
   feed note, never a failed run.
 
+### TLS certificate monitoring
+
+The control scans already touch TLS ports, so they now also complete a
+plain handshake and record the peer certificate (subject, issuer, SANs,
+validity, fingerprint, negotiated version and cipher — with
+`InsecureSkipVerify` on purpose: a verifying handshake would refuse
+expired and self-signed certs before they could be seen). The **TLS** tab
+ages those records into findings — the cheapest high-quality alert in
+attack-surface management:
+
+- **Expiring certificates** at 30/14/7-day thresholds (warn/high/critical)
+  and **expired** ones. Escalation tightens 30 → 14 → 7: each threshold
+  crossing raises one case; a renewed certificate has a new fingerprint
+  and starts its own lifecycle.
+- **Self-signed certificates** — fine for a NAS, worth a look on anything
+  claiming to be a production service.
+- **CA changes**: the issuer is compared against the previous observation
+  for the same host:port — a silent CA swap is a classic
+  interception/misconfiguration signal.
+- **Weak cryptography**: TLS older than 1.2, RC4, 3DES, CBC suites, RSA
+  key exchange without forward secrecy, NULL ciphers.
+
+Findings land in the inventory (`tls.json`, durable), escalate as ordinary
+cases (type `tls`, deduplicated per host/port/cert/kind), and appear on
+the map's topology timeline. `GET /api/tls` reports the inventory, `POST
+/api/tls/run` triggers a pass; the toggle and interval live in
+**Ustawienia → Skany kontrolne** (default ON — pure arithmetic over data
+the console already holds, no external calls). The rules themselves live
+in `internal/tlspolicy`, so the scanner can evaluate the same policy over
+its own probe results.
+
 
 On first run the engine seeds a starter list so it is useful out of the
 box. It ports the heuristics the edge bakes into its feature extractor

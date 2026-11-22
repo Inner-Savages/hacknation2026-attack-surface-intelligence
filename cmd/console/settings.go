@@ -51,6 +51,12 @@ type settings struct {
 	ExposureAPIKey      string `json:"exposure_api_key,omitempty"`      // censys: "api-id:api-secret"
 	ExposurePublicIP    string `json:"exposure_public_ip,omitempty"`    // empty = autodetect egress IP
 	ExposureIntervalMin int    `json:"exposure_interval_min,omitempty"` // default 360 (6 h)
+
+	// TLS certificate monitoring over the certificates captured by control
+	// scans. Default ON: it is pure arithmetic over data the console
+	// already holds (no external calls).
+	TLSEnabled     *bool `json:"tls_enabled,omitempty"`
+	TLSIntervalMin int   `json:"tls_interval_min,omitempty"` // default 60 (1 h)
 }
 
 func openSettings(dir string) (*settings, error) {
@@ -102,6 +108,8 @@ type configPatch struct {
 	ExposureAPIKey      *string `json:"exposure_api_key"`
 	ExposurePublicIP    *string `json:"exposure_public_ip"`
 	ExposureIntervalMin *int    `json:"exposure_interval_min"`
+	TLSEnabled          *bool   `json:"tls_enabled"`
+	TLSIntervalMin      *int    `json:"tls_interval_min"`
 }
 
 // update applies the non-nil fields of the patch and persists the result.
@@ -156,6 +164,12 @@ func (s *settings) update(p configPatch) error {
 	if p.ExposureIntervalMin != nil && *p.ExposureIntervalMin >= 0 {
 		s.ExposureIntervalMin = *p.ExposureIntervalMin
 	}
+	if p.TLSEnabled != nil {
+		s.TLSEnabled = p.TLSEnabled
+	}
+	if p.TLSIntervalMin != nil && *p.TLSIntervalMin >= 0 {
+		s.TLSIntervalMin = *p.TLSIntervalMin
+	}
 	return s.saveLocked()
 }
 
@@ -173,6 +187,8 @@ func (s *settings) snapshot() settings {
 		ExposureAPIKey:      s.ExposureAPIKey,
 		ExposurePublicIP:    s.ExposurePublicIP,
 		ExposureIntervalMin: s.ExposureIntervalMin,
+		TLSEnabled:          s.TLSEnabled,
+		TLSIntervalMin:      s.TLSIntervalMin,
 	}
 }
 
