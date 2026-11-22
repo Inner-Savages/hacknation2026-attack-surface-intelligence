@@ -72,6 +72,7 @@ type Event struct {
 	New    string     `json:"new,omitempty"`
 	Banner *Banner    `json:"banner,omitempty"`
 	Source string     `json:"source"`
+	Sensor string     `json:"sensor,omitempty"` // which sensor saw it, when several report to one place
 }
 
 // Record is the persisted view of a host or service.

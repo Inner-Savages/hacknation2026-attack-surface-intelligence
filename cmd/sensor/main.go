@@ -56,6 +56,9 @@ func main() {
 		learn       = flag.Duration("learn", 0, "build the baseline without emitting events for this long")
 		sweepEvery  = flag.Duration("sweep", 10*time.Second, "how often to check for silent hosts/services")
 		saveEvery   = flag.Duration("save", 30*time.Second, "how often to persist the baseline")
+		webhookURL  = flag.String("webhook", "", "also POST events (JSON arrays) to this URL, e.g. http://127.0.0.1:8090/events")
+		webhookTok  = flag.String("webhook-token", os.Getenv("SOTW_WEBHOOK_TOKEN"), "bearer token for -webhook (default $SOTW_WEBHOOK_TOKEN)")
+		name        = flag.String("name", "", "sensor name added to every event")
 	)
 	flag.Parse()
 	log.SetFlags(log.Ltime)
@@ -88,13 +91,22 @@ func main() {
 		}
 	}()
 
+	var hook *sensor.Webhook
+	if *webhookURL != "" {
+		hook = sensor.NewWebhook(*webhookURL, *webhookTok, 4096)
+		hook.Logf = log.Printf
+	}
 	var outMu sync.Mutex
 	enc := json.NewEncoder(os.Stdout)
 	emit := func(e sensor.Event) {
+		e.Sensor = *name
 		outMu.Lock()
 		defer outMu.Unlock()
 		if err := enc.Encode(e); err != nil {
 			log.Printf("write event: %v", err)
+		}
+		if hook != nil {
+			hook.Send(e)
 		}
 	}
 
@@ -127,6 +139,14 @@ func main() {
 		log.Printf("capturing on %s, watching %s, filter %q", strings.Join(names, ","), formatPrefixes(prefixes), *filter)
 	}
 
+	hookDone := make(chan struct{})
+	if hook != nil {
+		go func() { hook.Run(ctx); close(hookDone) }()
+		log.Printf("sending events to %s", *webhookURL)
+	} else {
+		close(hookDone)
+	}
+
 	var packets atomic.Int64
 	var wg sync.WaitGroup
 	for _, c := range captures {
@@ -140,6 +160,11 @@ func main() {
 		}()
 	}
 	wg.Wait()
+	stop()     // replay ends on EOF without a signal
+	<-hookDone // last flush of queued events
+	if hook != nil {
+		log.Printf("webhook: %d events sent, %d dropped", hook.Sent(), hook.Dropped())
+	}
 
 	if live {
 		var passed, dropped int
