@@ -2,9 +2,12 @@
 
 Rozwiązanie na wyzwanie *Attack Surface Intelligence* (Centrum Bezpieczeństwa Informacji AGH, HackNation 2026).
 
-> **Stan dokumentu.** Opisuje gałąź `main` po scaleniu PR #1–#28 (stan z 2026-11-22). Zgodność z treścią zadania wiersz po wierszu, z dowodami w kodzie: [`COMPLIANCE.md`](COMPLIANCE.md). Każdy wiersz mapy wymagań
-> (sekcja 9) zweryfikowano w kodzie albo uruchomieniem. Liczby (czasy, progi, domyślne wartości) pochodzą z kodu
-> albo z pomiarów wykonanych na tej maszynie; źródło jest podane przy każdej. Luki są opisane wprost w sekcji 10.
+> Opisuje gałąź `main` z 2026-11-22. Liczby (czasy, progi, wartości domyślne) pochodzą z kodu albo z pomiarów, ze źródłem
+> przy każdej. Zgodność z treścią zadania wiersz po wierszu: [`COMPLIANCE.md`](COMPLIANCE.md). Luki: [sekcja 10](#10-znane-luki-i-ograniczenia).
+
+**Najkrótsza droga dla jury:** [odpowiedzi na trzy pytania z zadania](#6-odpowiedzi-na-pytania-z-zadania) ·
+[bezpieczeństwo skanera](#51-skaner) · [role](#52-role-i-uprawnienia-rbac) · [szyfrowanie](#53-szyfrowanie-w-spoczynku) ·
+[pomiary](#8-zmierzone-wartości) · [mapa wymagań](#9-mapa-wymagań-z-treści-zadania)
 
 ## 1. Cel
 
@@ -39,20 +42,7 @@ flowchart LR
     G -- "eskalacje" --> C
 ```
 
-Ta sama w ASCII:
-
-```
-ruch ─► [sensor] ──webhook──► [edgegate]* ──► [trigger] ──► [pipeline: nmap + prober + sygnatury + CVE]
-          baseline              ocena AI       debounce,         │
-          host/port/baner       (score)        cooldown,         ▼
-             │                    │            quiet,       findings.jsonl / scan.json ──► scanner export
-             │ POST /logs         │            rate limit        │   (CSV|JSON|nmap|DefectDojo)
-             ▼                    ▼ eskalacje                    │ POST /findings
-        [konsola operatora: alerty, mapa, ekspozycja, TLS, zasoby, ryzyko, cele i import, role]
-        ▲                                                        │
-        └──────────── import skanu / listy celów (CSV, JSON) ◄───┘  ręczny skan: scanner -t / scanner schedule
-* opcjonalna (w demo online wyłączona)
-```
+Bramka AI (edgegate) jest opcjonalna; w demo online wyłączona.
 
 Trzy tryby pracy tego samego potoku (`internal/pipeline`):
 
@@ -86,11 +76,13 @@ Trzy tryby pracy tego samego potoku (`internal/pipeline`):
 | Ranking ryzyka | `internal/riskscore`, `cmd/console/risk.go` | wynik 0–100 na host z jawnym rozbiciem na czynniki |
 | Generator ruchu | `cmd/traffic`, `internal/traffic` | łagodny ruch w laboratorium, żeby sensor miał co obserwować |
 | Laboratorium | `lab/`, `lab/agh/` | własny lab (`lab/docker-compose.yml`) i nakładka na szablony CBI AGH |
-| Wdrożenie demo | `deploy/demo/` | publiczne demo: konsola za Cloudflare Tunnel i Access, opcjonalnie lab AGH z sensorem i triggerem na tej samej VM |
+| Wdrożenie demo | `deploy/demo/` | publiczne demo: konsola za Cloudflare Tunnel (opcjonalnie z Access), lab AGH z sensorem i triggerem na tej samej VM |
 
 Sensor i trigger rozmawiają webhookiem (`POST /events`), opcjonalnie z tokenem `SOTW_WEBHOOK_TOKEN`. Trigger wystawia
-`GET /healthz` (zlecenia oczekujące/w toku i powody odrzuceń zdarzeń). Konsola przyjmuje od sensora `POST /logs`, od
+`GET /healthz` (zlecenia oczekujące i w toku, powody odrzuceń zdarzeń). Konsola przyjmuje od sensora `POST /logs`, od
 bramki AI eskalacje `POST /events`, od triggera `POST /findings` (wszystko z tokenem `ASI_CENTRAL_TOKEN`, bez niego 401).
+W drugą stronę akcja `scan` na sprawie (z API albo z reguły triage) zleca triggerowi celowany skan, jeśli ustawiono
+`ASI_TRIGGER_URL`; zlecenie przechodzi przez tę samą politykę (allowlista, debounce, cooldown).
 
 ## 4. Formaty danych
 
@@ -125,9 +117,9 @@ tls_subject, tls_issuer, tls_not_after, tls_self_signed, technologies, tags, con
 **Sygnatura** (YAML, `internal/fingerprint`): `name`, `category`, `tags`, `min_confidence` (domyślnie 0,5)
 oraz lista `match`; każdy matcher ma jeden rodzaj dowodu (`header`, `cookie`, `title`, `body`, `favicon`,
 `nmap_product`, `nmap_service` lub `path`) i `weight` (domyślnie 0,6). Pliki ze złymi polami są odrzucane
-(`KnownFields`). Wbudowanych jest 38 sygnatur (5 plików: apps 11, servers 10, services 8, environment 5, iot 4;
-liczone `grep '^- name:'`); importer (`cmd/sigimport`) według README daje na obecnych źródłach około 60 000
-dodatkowych, których nie ma w repozytorium (generowany plik jest danymi, nie kodem).
+(`KnownFields`). Wbudowanych jest 38 sygnatur (5 plików: apps 11, servers 10, services 8, environment 5, iot 4);
+importer (`cmd/sigimport`) daje na obecnych źródłach około 60 000 dodatkowych. Nie ma ich w repozytorium: generowany plik
+jest danymi, nie kodem.
 
 ## 5. Model bezpieczeństwa
 
@@ -170,8 +162,8 @@ Własne role tworzy administrator (`POST /api/roles`, edytor ról w zakładce �
 i spraw trafiają do dziennika audytu (`/api/audit`, uprawnienie `audit:read`). Zweryfikowano lokalnie (konsola w trybie
 demo, konto `jury` z rolą `viewer`): odczyt zakładek zwraca 200; `GET /api/config`, `/api/users`, `/api/roles`, `/api/audit`
 zwracają 403; `POST` na `/api/exposure/run`, `/api/tls/run`, `/api/groundtruth/run`, `/api/targets`, `/api/import` i `PUT
-/api/overrides/…` zwracają 403. Zakładki „Ustawienia” i „Role” nie są dla `viewer` widoczne, ale przycisk „Edytuj” w
-„Cele i import” jest widoczny; serwer i tak odrzuca zapis (403).
+/api/overrides/…` zwracają 403. Zakładki „Ustawienia” i „Role” są dla `viewer` ukryte. Przycisk „Edytuj” w „Cele i import” pozostaje widoczny,
+ale o uprawnieniach decyduje serwer: zapis kończy się kodem 403.
 
 Hasła: PBKDF2-HMAC-SHA256 (120 000 iteracji, sól na użytkownika). Sesje: losowe tokeny w pamięci (TTL 12 h),
 ciasteczko `HttpOnly`, `SameSite=Lax`. Samorejestracja da się wyłączyć (`ASI_ALLOW_REGISTRATION=false`; wdrożenie demo
@@ -249,8 +241,8 @@ które milczą co najmniej `gt_silent_min` (domyślnie 60 min) łączeniami TCP 
 3389, 5432, 6379, 8080, 8443, 9200, plus znane z sensora), żeby odróżnić „cichy” od „wyłączony”.
 
 **Wniosek praktyczny:** „nieaktywny” = cisza ponad próg sensora **i** potwierdzenie aktywną sondą (`down-confirmed`).
-W trybie okresowym `scanner diff` oznacza hosta jako zniknął już po **jednym** przebiegu bez odpowiedzi; reguły
-„N kolejnych przebiegów” między skanami **w kodzie nie ma** (luka, sekcja 10). Dla hostów, które odpowiadają tylko o
+W trybie okresowym `scanner diff` oznacza hosta jako zniknął już po **jednym** przebiegu bez odpowiedzi; reguła
+„N kolejnych przebiegów” między skanami to znana luka (sekcja 10). Dla hostów, które odpowiadają tylko o
 określonej porze, zalecane jest dobranie `-silent-after` do okna i porównywanie skanów z tej samej pory (`scanner schedule`
 ustawia stałe okno i częstotliwość).
 
@@ -275,14 +267,15 @@ Skan ręczny, porównanie, eksport:
 ./bin/scanner export -format defectdojo -dry-run scan2.json
 ```
 
-Harmonogram (CLI; nie jest wpięty w UI konsoli):
+Harmonogram (CLI):
 
 ```bash
+mkdir -p results
 ./bin/scanner schedule -window 22:00-05:00 -tz Europe/Warsaw -every daily@22:00 \
   -checkpoint state.jsonl -out results -f targets.txt -allow 10.0.0.0/16
 ```
 
-Konsola lokalnie w trybie demo (dane syntetyczne: 137 sensorów, 217 spraw; konta z zmiennych środowiskowych):
+Konsola lokalnie w trybie demo (dane syntetyczne: 137 sensorów, 217 spraw; konta ze zmiennych środowiskowych):
 
 ```bash
 ASI_CENTRAL_TOKEN=<token> ASI_ADMIN_LOGIN=admin ASI_ADMIN_PASSWORD=<hasło> \
@@ -304,27 +297,27 @@ Nakładka dodaje: `traffic` (ruch w tle), `flapper` (nginx up/down co `FLAP_UP`/
 
 **Publiczne demo** (`deploy/demo/`, opis w `deploy/demo/README.md`): <https://silent.zjadlabymciastko.net>. Jedna VM
 (Proxmox), jeden projekt compose; konsola w trybie demo+live (syntetyczna flota plus prawdziwe zdarzenia), dostępna wyłącznie
-przez Cloudflare Tunnel za Cloudflare Access (jednorazowy PIN na e-mail); na hoście nie jest publikowany żaden port. Na tej
+przez Cloudflare Tunnel; na hoście nie jest publikowany żaden port. Poza czasem oceny przed konsolą stoi Cloudflare Access
+(jednorazowy PIN na e-mail), na czas oceny wyłączony. Na tej
 samej VM działa lab AGH z sensorem i triggerem (profil `lab`); aktualizacja przez `docker compose pull` co 5 min
 (timer systemd), obrazy z CI. Konta: `admin` (administracja) i `jury` (rola `viewer`, tylko odczyt); hasła w
 `secrets/`, nie w repozytorium. Klucze Shodan/Censys/NVD są opcjonalne i czytane tylko ze zmiennych środowiskowych.
 Scenariusz pokazu krok po kroku: [`DEMO.md`](DEMO.md).
 
-## 8. Zmierzone wartości (ta maszyna, 2026-11-22)
+## 8. Zmierzone wartości
 
-Nie są to benchmarki wydajności, tylko odnotowane przebiegi pokazowe.
+Pojedyncze przebiegi z 2026-11-22 na laptopie (8 wątków CPU), bez opóźnień sieci WAN: rząd wielkości, nie benchmark.
 
-| Co | Wynik | Skąd |
+| Co | Wynik | Polecenie / źródło |
 |---|---|---|
-| Skan 7 portów na `127.0.0.1` (`-sT -sV -Pn`, jeden chunk, wersja skanera sprzed #14) | 48,0 s | log skanera; dominuje `-sV` na portach 5673 i 15432 |
-| Sonda HTTP 4 usług | 8 ms | log skanera |
-| Fingerprinting | 12 ms | log skanera |
-| Różnica skan 1 → skan 2 po uruchomieniu nginx | `+ 18787/tcp http nginx 1.31.9`, 1 nowa usługa | `scanner diff` oraz import w konsoli |
-| Skan 2 → skan 3 po zatrzymaniu nginx | `- 18787/tcp http nginx 1.31.9`, 1 znikająca | `scanner diff` oraz import w konsoli |
-| Edycja wpisu w konsoli, potem ponowny import skanu | nadpisanie (tytuł, tagi, notatka, status) zostaje | `PUT /api/overrides/…`, `GET /api/inventory` |
-| Konsola `-demo`: dane startowe | 137 sensorów, 217 spraw | log konsoli |
-
-Czas skanu z `-version-mode balanced` i `-chunk-time` (zmiany z #14) na tej maszynie nie był ponownie mierzony.
+| Lab AGH `custom-network`, 7 portów z `-sV`, sondami i sygnaturami | **5,03 s** (zwykłe `nmap -sV`, jak przed #14: 48 s) | `scanner -t 127.0.0.1 -p … -Pn`; porównanie trybów w [#14](https://github.com/Inner-Savages/silence-on-the-wire/pull/14) |
+| **16 384 adresy**, 2 zamknięte porty, ustawienia domyślne (`-max-rate 300`, 4 procesy) | **33,8 s** | `scanner -t 127.64.0.0/18 -p 81,8081 -Pn` (pętla zwrotna, bez otwartych usług) |
+| To samo z `-max-rate 2000` | 10,7 s | jw. |
+| Sonda HTTP 4 usług / fingerprinting | 8–27 ms / 14–19 ms | log skanera |
+| Harmonogram: skan przerwany zamknięciem okna i dokończony w następnym | 256/256 adresów, 2 sesje, 3 min 11 s skanowania | przebieg w [#14](https://github.com/Inner-Savages/silence-on-the-wire/pull/14) |
+| Eksport do DefectDojo 3.5.202 (żywa instancja), dwa razy | 8 findingów utworzonych, potem 0 nowych i 8 bez zmian | przebieg w [#12](https://github.com/Inner-Savages/silence-on-the-wire/pull/12) |
+| Uruchomienie i zatrzymanie nginx między skanami | `+ 18787/tcp http nginx 1.31.9`, potem `- 18787/tcp …` | `scanner diff` i import w konsoli |
+| Edycja wpisu, potem ponowny import skanu | nadpisanie (tytuł, tagi, notatka, status) zostaje | `PUT /api/overrides/…`, `GET /api/inventory` |
 
 ## 9. Mapa wymagań z treści zadania
 
@@ -345,15 +338,15 @@ opisanym w kolumnie; **brak** = nie ma w `main`.
 | 8 | Porównanie wyników między przebiegami | `scanner diff` (`-json`, `-exit-code`); diff przy imporcie skanu w konsoli | zrobione |
 | 9 | Oznaczenie nowych, znikających, zmienionych | `+` / `-` / `~` w diffie; zdarzenia sensora | zrobione |
 | 10 | Własne sygnatury | `-signatures plik.yaml` (w skanerze i w triggerze); `cmd/sigimport` | zrobione; nie ma edytora sygnatur w UI konsoli |
-| 11 | Formularz wprowadzania danych (ręcznie, CSV/JSON), przetwarzany tak samo | zakładka „Cele i import”: dodanie celu, import listy celów, import wyniku skanu; wszystko trafia do tego samego inwentarza z diffem | zrobione; konsola **nie uruchamia skanu** wpisanych celów, skan wykonuje się z CLI lub harmonogramu (sekcja 10) |
+| 11 | Formularz wprowadzania danych (ręcznie, CSV/JSON), przetwarzany tak samo | zakładka „Cele i import”: dodanie celu, import listy celów, import wyniku skanu; wszystko trafia do tego samego inwentarza z diffem | częściowo: konsola **nie skanuje** wpisanych celów sama, skan wykonuje się z CLI lub harmonogramu, a wynik importuje (sekcja 10) |
 | 12 | RBAC z różnymi rolami | uprawnienia + role wbudowane i własne (sekcja 5.2) | zrobione |
 | 13 | Role: administracja; dodawanie/usuwanie/modyfikacja; modyfikacja i odczyt; odczyt | `admin`, `editor`, `analyst`, `viewer` | zrobione |
-| 14 | Edycja wprowadzonych wartości, zachowanie przy kolejnych skanach | nadpisania użytkownika (tytuł, technologia, tagi, notatka, status), zachowane po ponownym imporcie (sprawdzone) | zrobione |
-| 15 | Czytelny interfejs, dashboard najważniejszych znalezisk | konsola: Alerty (liczniki, karty), Mapa, Ekspozycja, TLS, Zasoby, Ryzyko (top N), Logi live, Sensory, Cele i import | zrobione; wiele widoków w demo pokazuje dane syntetyczne albo puste stany bez żywego sensora |
+| 14 | Edycja wprowadzonych wartości, zachowanie przy kolejnych skanach | nadpisania użytkownika (tytuł, technologia, tagi, notatka, status), zachowane po ponownym imporcie | zrobione dla nadpisań; pól usługi i konfiguracji skanu nie edytuje się w UI |
+| 15 | Czytelny interfejs, dashboard najważniejszych znalezisk | konsola: Alerty (liczniki, karty), Mapa, Ekspozycja, TLS, Zasoby, Ryzyko (top N), Logi live, Sensory, Cele i import | zrobione; flota i większość spraw w demo to dane syntetyczne, Mapa, TLS i Zasoby pochodzą z żywego labu |
 | 16 | Szyfrowanie w spoczynku wrażliwych pól | AES-256-GCM dla trwałych plików konsoli (sekcja 5.3) | zrobione dla konsoli; pliki wyjściowe CLI nie są szyfrowane |
 | M1 | Import listy hostów/zakresów | jak 1 | zrobione |
 | M2 | Import wyników skanów JSON/CSV | `POST /api/import?kind=scan` (JSON modelu wyników, CSV z `scanner export`) | zrobione |
-| M3 | Duże zakresy >10 000 IP | rozwijanie do 2^20 adresów, paczki adaptacyjne, równoległość; nie testowano na 10 000 adresów | zrobione w kodzie, **nie zmierzone** |
+| M3 | Duże zakresy >10 000 IP | rozwijanie do 2^20 adresów, paczki adaptacyjne, równoległość | zrobione; zmierzone 16 384 adresy na pętli zwrotnej (sekcja 8), bez pomiaru w prawdziwej sieci tej wielkości |
 | M4 | Okno czasowe i częstotliwość uruchamiania | `scanner schedule` (okna, `-every`, strefa, wznawianie) | zrobione w CLI; **nie wpięte w UI konsoli** |
 | M5 | Ograniczanie tempa zapytań | `-max-rate`, `-parallel`; w triggerze limit/min, cooldown | zrobione |
 | M6 | Wykrywanie aktywnych hostów, identyfikacja usług | jak 3–4 | zrobione |
@@ -370,32 +363,29 @@ opisanym w kolumnie; **brak** = nie ma w `main`.
 | D6 | Proste wykrywanie CMS/technologii | jak 6 | zrobione |
 | D7 | Grupowanie podobnych usług | kategorie i tagi sygnatur, selektory eksportu `category:`, `tag:`, `tech:`; klasy urządzeń w zasobach | zrobione (częściowo) |
 | D8 | Tagi | tagi sygnatur, tagi użytkownika w nadpisaniach, tagi findingów w DefectDojo | zrobione |
-| D9 | Eksport do DefectDojo jako finding informacyjny | `scanner export -format defectdojo`, stabilny `unique_id_from_tool` (zweryfikowane `-dry-run`) | zrobione; wysyłka do żywej instancji nie testowana w tej dokumentacji |
-| D10 | Wizualizacja zmian w czasie | mapa powierzchni ataku z osią czasu (odtwarzanie dziennika topologii) | zrobione; na demo wymaga żywego sensora (bez niego „Mapa jest jeszcze pusta”) |
+| D9 | Eksport do DefectDojo jako finding informacyjny | `scanner export -format defectdojo`, stabilny `unique_id_from_tool` | zrobione; sprawdzone na żywym DefectDojo 3.5.202 (sekcja 8) |
+| D10 | Wizualizacja zmian w czasie | mapa powierzchni ataku z osią czasu (odtwarzanie dziennika topologii) | zrobione |
 | D11 | Integracja z pasywnymi źródłami | własny sensor pasywny; zasoby klasyfikowane z ruchu; ekspozycja Shodan/Censys | zrobione; Shodan/Censys wymagają kluczy, bez nich zakładka mówi „nie jest skonfigurowana” |
-| + | Monitor TLS | wygasanie 30/14/7 dni, self-signed, zmiana CA, słaba kryptografia; sprawdzanie co godzinę (domyślnie) | zrobione; w demo bez celów TLS jest pusty |
+| + | Monitor TLS | wygasanie 30/14/7 dni, self-signed, zmiana CA, słaba kryptografia; sprawdzanie co godzinę (domyślnie) | zrobione; w demo cztery usługi TLS w labie dają prawdziwe znaleziska |
 
 Kryteria testowe z sekcji 6 zadania pokrywają odpowiednio: hosty niestabilne (6.3 i flapper w `lab/agh`),
 bezpieczeństwo skanera (sekcja 5.1), role (5.2), import/eksport (sekcje 4 i 7), testy w `internal/*/…_test.go`.
 
 ## 10. Znane luki i ograniczenia
 
-- **Błąd interfejsu konsoli naprawiony w #24.** Od scalenia #15 do #24 w `cmd/console/static/index.html` brakowało
-  `}` w `importFile()`: przeglądarka zgłaszała `Uncaught SyntaxError: Unexpected end of input`, a strona konsoli
-  zostawała pusta (bez ekranu logowania), mimo że API działało. Jeśli publiczne demo nie pokazuje ekranu logowania,
-  sprawdź, czy VM pobrała obraz z #24 (aktualizacja co 5 min).
 - **Harmonogram jest tylko w CLI** (`scanner schedule`). Konsola go nie wywołuje ani nie pokazuje; nie ma też przycisku
-  „uruchom skan” dla celów wpisanych w formularzu (konsola przechowuje cele i wyniki, skanuje je skaner/trigger).
+  „uruchom skan” dla celów wpisanych w formularzu. Z konsoli można zlecić triggerowi skan hosta ze sprawy (akcja `scan`,
+  wymaga `ASI_TRIGGER_URL`; na demo nie ustawione).
 - **Shodan i Censys** bez kluczy API są puste (komunikat „nie jest skonfigurowana”); na publicznym demo klucze są
   opcjonalne i, o ile nie ustawione, widok ekspozycji pozostaje pusty. Kontrole z NVD działają bez klucza, ale wolniej.
 - **Bramka AI (edgegate)** jest opcjonalna i w demo online wyłączona (UI konsoli pokazuje „AI: wyłączone”); wagi modeli
   mają ~2,5 GB i nie są w repozytorium. Cel 50% jest skalibrowany na danych syntetycznych, nie jest twardą kwotą.
-- **Dane demo.** W trybie `-demo` flota (137 sensorów), sprawy i ranking ryzyka pochodzą z generatora; dopiero prawdziwe
-  zdarzenia z sensora (lab AGH) napełniają Mapę i Zasoby. Zasoby z laboratorium Dockera dostają od #28 konkretne klasy (`kontener`, `brama`, `baza`,
-  `broker`, `git`, `web`…) z portów, produktów i tytułów HTTP z zaimportowanego skanu; sam OUI w sieci mostowej niczego
-  nie rozstrzyga (adresy `02:42:…` to kontenery), więc bez skanu wiele hostów zostaje „nieznanych”.
+- **Dane demo.** Flota (137 sensorów), większość spraw i część rankingu ryzyka pochodzą z generatora (`-demo`); Mapę, TLS i Zasoby
+  napełniają prawdziwe zdarzenia z labu AGH.
+- **Klasyfikacja urządzeń to heurystyka** na portach, banerach i tytułach HTTP; w sieci mostowej Dockera sam OUI niczego nie
+  rozstrzyga (`02:42:…`), a pojedyncze hosty bywają sklasyfikowane błędnie (na demo np. bramki z samym portem 22).
 - **Reguła „N skanów z rzędu”** dla hosta nieaktywnego w trybie okresowym nie jest zaimplementowana (sekcja 6.3).
 - **Wyniki** skanera to pliki JSON bez bazy danych; szyfrowane są pliki konsoli, nie wyjście CLI.
-- **Skala >10 000 adresów** nie została zmierzona.
+- **Skala >10 000 adresów** zmierzona tylko na pętli zwrotnej (sekcja 8): nie obejmuje opóźnień sieci, filtrowanych hostów ani `-sV` na tysiącach usług.
 - **Różnice zależne od pory dnia**: brak dedykowanej analizy.
-- Konsola nie ma przycisku eksportu wyników skanu do CSV/JSON/DefectDojo; eksport robi `scanner export` z wynikiem skanu.
+- **Eksport z UI:** konsola nie ma przycisku eksportu wyników skanu do CSV/JSON/DefectDojo; eksport robi `scanner export` z wynikiem skanu.

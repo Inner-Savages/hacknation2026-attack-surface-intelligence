@@ -4,7 +4,7 @@ Cel: 8–10 minut, 10 slajdów (`docs/slides/silence-on-the-wire.pdf`), demo na 
 
 ## Przed wejściem (2 minuty)
 
-- [ ] Otwórz `https://silent.zjadlabymciastko.net` w dwóch kartach: jedna zalogowana jako `jury`, druga jako `admin`. Hasła od zespołu (nie ma ich w repo; leżą na VM w `/opt/silent-demo/secrets/`).
+- [ ] Otwórz `https://silent.zjadlabymciastko.net` w dwóch kartach: jedna zalogowana jako `jury`, druga jako `admin`. Hasła od zespołu (nie ma ich w repo).
 - [ ] Sprawdź nagłówek konsoli: „DANE DEMO” i „LIVE · tylko edge”, sensory online, w Mapie widać hosty `172.29.10.x` / `172.29.11.x`.
 - [ ] Zakładka TLS ma 3 znaleziska (wygasły, wygasa za 9 dni, self-signed). Jeśli jest pusta: `admin` → „Uruchom kontrolę teraz” (dane pojawiają się po skanie kontrolnym cichych hostów).
 - [ ] Terminal z repo gotowy: `make build`, w drugim oknie lab AGH (jeśli pokazujesz skan i diff lokalnie, `DEMO.md` sekcja B).
@@ -19,7 +19,7 @@ Cel: 8–10 minut, 10 slajdów (`docs/slides/silence-on-the-wire.pdf`), demo na 
 | 1:15 | 3 Teza | Nie skanuj wszystkiego: słuchaj ruchu pasywnym sensorem i skanuj celowanie tam, gdzie coś się zmieniło. Sensor nic nie wysyła do sieci. |
 | 2:00 | 4 Architektura | Osobne binarki połączone webhookami JSON: sensor, trigger, pipeline (nmap + GET + sygnatury), konsola, eksport do DefectDojo. Bramka AI opcjonalna, na demo wyłączona. |
 | 3:00 | 5 Demo | **Na żywo, patrz niżej.** |
-| 6:00 | 6 Skaner | Prober tylko GET, 38 sygnatur, pewność jako noisy-OR (`1 − Π(1 − w)`); Gitea 0,99, RabbitMQ 0,95 zmierzone na labie AGH. |
+| 6:00 | 6 Skaner | Prober tylko GET, 38 sygnatur, pewność jako noisy-OR (`1 − Π(1 − w)`); Gitea 0,99, RabbitMQ 0,95 zmierzone na labie AGH; cały skan 7 usług: 5 s (zwykłe `nmap -sV`: 48 s). |
 | 6:45 | 7 Zmiany w czasie | Diff `+ − ~`. Host nieaktywny w trzech stopniach: cisza sensora, aktywna weryfikacja triggera, cooldown. Flapper pokazuje hosta niestabilnego. |
 | 7:30 | 8 Bezpieczeństwo | Skaner bez logowania i exploitów, allowlista, limity; RBAC (4 role + własne), AES-256-GCM. **Powiedz o lukach** (zob. niżej). |
 | 8:30 | 9 Rynek | SecureCodeBox z treści zadania: orkiestruje skanery; nasz wkład to pętla sensor → skan → konsola. Kolumny cudzych narzędzi to nasza ocena, nie pomiar. |
@@ -36,19 +36,21 @@ Powiedz wprost: flota 137 sensorów i większość spraw to dane syntetyczne try
 
 ## Uczciwe luki (mów je sam, zanim zapyta jury)
 
-- Harmonogram (okna, częstotliwość, wznawianie) i eksport wyników są w CLI, **nie w UI konsoli**; konsola nie uruchamia skanów.
-- Skala >10 000 adresów: kod jest (paczki, równoległość), **pomiaru nie robiliśmy**.
+- Harmonogram (okna, częstotliwość, wznawianie) i eksport wyników są w CLI, **nie w UI konsoli**; konsola nie skanuje celów z formularza.
+- Skala >10 000 adresów: 16 384 adresy w 33,8 s, ale **tylko na pętli zwrotnej** (zamknięte porty), nie w prawdziwej sieci.
 - Wyniki w plikach JSON (szyfrowane przez konsolę), nie w bazie danych; pliki wyjściowe CLI są jawne.
 - Ekspozycja (Shodan/Censys) bez kluczy: pusta; bramka AI wyłączona na demo.
 - Brak reguły „N skanów z rzędu” dla nieaktywności i analizy zależnej od pory dnia.
 - Pełna tabela zgodności z treścią zadania: `COMPLIANCE.md`.
 
-## Pułapki na demo (próbny przebieg 2026-11-22: publiczny adres 200 w 0,16 s, `jury` czyta i dostaje 403 na zapisie, `admin` dodaje cel, importuje CSV z odrzuceniem błędnego wiersza, edycja przeżywa ponowny import, `scanner diff` i `export -dry-run` działają)
+## O czym pamiętać na demo
 
-- **Zasoby:** hosty z samym portem 22 (np. bramki `172.29.10.1`, `172.29.11.1`) mają klasę „Serwer Git” z pewnością 98%; to nietrafna klasyfikacja, nie pokazuj tej zakładki jako przykładu jakości, a jeśli ktoś zapyta, powiedz, że to heurystyka na portach i jest do poprawy.
-- **Skan usług TLS z labu jest wolny:** skan czterech hostów `172.29.10.50-53` na porcie 443 trwał ponad 3 minuty (nmap `-sV` wobec `openssl s_server`), a dwa kolejne przebiegi zmieniają hash favicony (każdy start generuje inną stronę, więc diff pokazuje szum). Na żywo skanuj lab AGH z `DEMO.md` (7 portów, ok. 48 s), nie hosty TLS.
+Próbny przebieg 2026-11-22: publiczny adres 200 w 0,16 s, `jury` czyta i dostaje 403 na zapisie, `admin` dodaje cel, importuje CSV z odrzuceniem błędnego wiersza, edycja przeżywa ponowny import, `scanner diff` i `export -dry-run` działają.
+
+- **Zasoby:** klasyfikacja to heurystyka na portach i banerach; bramki z samym portem 22 (`172.29.10.1`, `172.29.11.1`) bywają pokazane jako „Serwer Git”. To znane ograniczenie (`ARCHITECTURE.md`, sekcja 10), powiedz o nim, jeśli otwierasz tę zakładkę.
+- **Skan usług TLS z labu jest wolny:** skan czterech hostów `172.29.10.50-53` na porcie 443 trwał ponad 3 minuty (nmap `-sV` wobec `openssl s_server`), a dwa kolejne przebiegi zmieniają hash favicony (każdy start generuje inną stronę, więc diff pokazuje szum). Na żywo skanuj lab AGH z `DEMO.md` (7 portów, ok. 5 s), nie hosty TLS.
 - **Mapa:** host `172.29.10.4` jest „nieosiągalny” (flapper); to zamierzony host niestabilny.
-- **Dostęp:** demo jest publiczne do 16:00 (Cloudflare Access wyłączony na czas oceny), potem trzeba przywrócić Access.
+- **Dostęp:** na czas oceny (do 16:00) Cloudflare Access jest wyłączony, wystarczy logowanie do konsoli.
 
 ## Możliwe pytania i krótkie odpowiedzi
 
@@ -57,6 +59,6 @@ Powiedz wprost: flota 137 sensorów i większość spraw to dane syntetyczne try
 | Po jakim czasie host jest nieaktywny? | Sensor: cisza dłuższa niż `-silent-after` (domyślnie 2 min) → `host_silent`; trigger weryfikuje aktywnie; „down-confirmed” dopiero po nieudanych próbach. Dla skanów okresowych reguły „N skanów” nie mamy. |
 | Skąd pewność technologii? | Wagi dowodów (nagłówek, ciasteczko, HTML, favicon, ścieżka GET) łączone noisy-OR; próg 0,5. |
 | Czy to bezpieczne dla skanowanej sieci? | Tylko GET, bez logowania i NSE, allowlista, `-max-rate`, limit skanów na minutę, cooldown; trigger skanuje tylko to, co jest na allowliście. |
-| Jak to się integruje z DefectDojo? | `scanner export -format defectdojo` tworzy findingi informacyjne; sprawdzone `-dry-run`, bez żywej instancji. |
+| Jak to się integruje z DefectDojo? | `scanner export -format defectdojo` tworzy findingi informacyjne; sprawdzone na żywym DefectDojo 3.5.202: 8 utworzonych, powtórny eksport 0 nowych. |
 | Co z danymi wrażliwymi? | AES-256-GCM dla kont, ról, spraw, inwentarza, TLS, audytu; klucz poza repozytorium. Pliki wyjściowe CLI jawne (0600). |
 | Dlaczego pasywny sensor? | Skan okresowy jest ślepy między przebiegami; sensor widzi zmianę od razu i budzi skan celowany. Nie wysyła nic do sieci. |

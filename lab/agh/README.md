@@ -3,7 +3,7 @@
 `upstream/` is the set of example environments the challenge organizers (Information
 Security Center of AGH University of Krakow, CBI AGH) shared with HackNation 2026
 participants. The files are unchanged from the original archive (the only difference:
-`quickstart.sh` is marked executable, as its README expects). 
+`quickstart.sh` is marked executable, as its README expects).
 
 See `upstream/README.md` (Polish) for the stacks and their quickstart.
 
@@ -25,5 +25,5 @@ lab/agh/scenario.sh          # optional argument: path to another copy of the te
 
 Without the overlay (`-f lab/agh/traffic-custom-network.yml`) the stack behaves exactly as
 the organizers ship it. The overlay uses only published images
-(`ghcr.io/inner-savages/silence-on-the-wire/{sensor,traffic}`), no local paths, so it also
+(`ghcr.io/inner-savages/silence-on-the-wire/{sensor,trigger,traffic}` and `nginx:alpine`), no local paths, so it also
 works with a copy of the templates kept elsewhere.
