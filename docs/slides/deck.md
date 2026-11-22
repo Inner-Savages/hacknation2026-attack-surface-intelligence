@@ -110,7 +110,7 @@ a jego intensywność ogranicza polityka.
 - **konsola**: Alerty, Mapa, Ekspozycja, TLS, Zasoby, Ryzyko, Cele i import, Role
 - **eksport**: CSV, JSON, nmap XML, **DefectDojo**
 - **edgegate**: kaskada modeli (na demo wyłączona)
-- **wdrożenie**: kontenery bez uprawnień, demo za Cloudflare Tunnel + Access
+- **wdrożenie**: kontenery bez uprawnień, demo za Cloudflare Tunnel
 
 </div>
 </div>
@@ -118,7 +118,7 @@ a jego intensywność ogranicza polityka.
 <p class="small">Komponenty to osobne binarki połączone webhookami JSON · sensor tylko z <code>CAP_NET_RAW</code></p>
 
 <!--
-Bramka AI jest opcjonalna. Publiczne demo: jedna VM, konsola za Cloudflare Tunnel i Access, lab AGH z sensorem i triggerem
+Bramka AI jest opcjonalna. Publiczne demo: jedna VM, konsola za Cloudflare Tunnel (Access wyłączony na czas oceny), lab AGH z sensorem i triggerem
 na tej samej maszynie, aktualizacja obrazów co 5 minut.
 -->
 
@@ -139,7 +139,7 @@ na tej samej maszynie, aktualizacja obrazów co 5 minut.
 
 <!--
 Pokaż rozgraniczenie ról na żywo: ten sam ekran, dwa konta. Flota 137 sensorów, sprawy i część rankingu to dane syntetyczne trybu demo;
-Mapę, TLS i Zasoby napełniają prawdziwe zdarzenia i skany labu AGH. Skan 7 portów labu trwał 48 s (zmierzone). Jeśli sieć zawiedzie,
+Mapę, TLS i Zasoby napełniają prawdziwe zdarzenia i skany labu AGH. Skan 7 portów labu trwa 5 s (zwykłe nmap -sV: 48 s, zmierzone). Jeśli sieć zawiedzie,
 wyniki z terminala są w DEMO.md.
 -->
 
@@ -151,10 +151,10 @@ wyniki z terminala są w DEMO.md.
 <div><b>38</b>sygnatur wbudowanych</div>
 <div><b>0,99</b>pewność Gitea</div>
 <div><b>0,95</b>pewność RabbitMQ</div>
-<div><b>/12</b>największy CIDR</div>
+<div><b>5 s</b>skan labu AGH (nmap -sV: 48 s)</div>
 </div>
 
-- IP, CIDR, nazwy; paczki dobierane do zmierzonego tempa (`-chunk-time`), 4 równoległe procesy nmap
+- IP, CIDR (do /12), nazwy; paczki dobierane do zmierzonego tempa (`-chunk-time`), 4 równoległe procesy nmap
 - Prober **tylko GET**: status, tytuł, nagłówki, ciasteczka, certyfikat TLS, przekierowania, favicon (mmh3 jak Shodan)
 - **Pewność** = noisy-OR wag dowodów: `1 − Π(1 − w)`, próg 0,5
 - Obserwacje: panel admina, staging, strona domyślna, instalator, certyfikat samopodpisany; CVE z EPSS i KEV
@@ -197,7 +197,7 @@ oznacza zniknięcie po jednym skanie; reguły „N skanów z rzędu” i analizy
 **Konto**
 - PBKDF2-SHA256 (120 000 iteracji)
 - samorejestracja wyłączona
-- demo za Cloudflare Access (PIN)
+- demo tylko przez Cloudflare Tunnel
 
 </div>
 <div>
@@ -232,8 +232,8 @@ Szyfrowanie sprawdzone: pliki zaczynają się od nagłówka ASIE. Powiedz wprost
 | Pasywny sensor i zdarzenia | nie | nie | nie | **tak** |
 | Diff między skanami | ndiff | zależnie od skanera | nie | **tak**, wbudowany |
 | Własne sygnatury bez eksploatacji | NSE | szablony | tak | **tak**, tylko GET + importer |
-| DefectDojo | import XML | tak | nie | **tak**, finding informacyjny |
-| RBAC, szyfrowanie, ranking ryzyka | nie | nie | nie | **tak** |
+| DefectDojo | import XML | tak | nuclei: import JSON | **tak**, finding informacyjny |
+| Role, szyfrowanie, ranking ryzyka w jednej konsoli | nie | RBAC Kubernetesa | nie | **tak** |
 
 <p class="small">Kolumny cudzych narzędzi to ogólna ocena z dokumentacji, nie pomiar.</p>
 
@@ -248,9 +248,9 @@ pasywny sensor → celowany skan → konsola z rolami. Sprawdź kolumny cudzych 
 
 **Działa:** discovery i usługi · fingerprinting z pewnością · diff · sensor + trigger · eksport CSV/JSON/nmap/**DefectDojo** · harmonogram (CLI) · CVE/EPSS · konsola z **RBAC** i **szyfrowaniem** · import i edycja · mapa, TLS, zasoby, ranking ryzyka · publiczne demo
 
-<p class="warn"><b>Luki (uczciwie):</b> harmonogram i skan poza UI · Shodan/Censys bez kluczy · bramka AI wyłączona na demo · brak reguły „N skanów z rzędu” i analizy pory dnia · skala >10 000 adresów niezmierzona · wyniki w plikach, nie w bazie</p>
+<p class="warn"><b>Luki (uczciwie):</b> harmonogram i skan celów poza UI · Shodan/Censys bez kluczy · bramka AI wyłączona na demo · brak reguły „N skanów z rzędu” i analizy pory dnia · skala: 16 384 adresy w 34 s, tylko na pętli zwrotnej · wyniki w plikach, nie w bazie</p>
 
-**Dalej:** skan z konsoli, baza z szyfrowaniem, pomiar na 10 000+ adresów, wdrożenie w CBI AGH
+**Dalej:** skan z konsoli, baza z szyfrowaniem, pomiar w sieci 10 000+ adresów, wdrożenie w CBI AGH
 
 <!--
 Zamknij tym, co faktycznie jest, i tym, co w drodze. Zaproś do rozmowy o wdrożeniu w CBI AGH i współpracy z innymi uczelniami.

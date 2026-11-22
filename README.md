@@ -13,12 +13,37 @@ reconnaissance.
 
 Built during [HackNation 2026](https://hacknation.pl) for the *Attack Surface
 Intelligence* challenge set by the Information Security Center of AGH University of
-Krakow (CBI AGH). The sensor, trigger, scanner, exporters and the operator console are on
-`main` and run end to end; what is still missing is listed honestly in
-[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) (requirement by requirement, with the evidence in
-code). Technical documentation: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), demo script:
-[`docs/DEMO.md`](docs/DEMO.md), slides: [`docs/slides/`](docs/slides/). Live demo (behind
-Cloudflare Access): <https://silent.zjadlabymciastko.net>.
+Krakow (CBI AGH).
+
+| Attack-surface map with a time slider | Per-host risk ranking |
+|---|---|
+| ![Map: lab hosts and the event timeline](docs/slides/img/mapa.jpg) | ![Risk: hosts ranked 0-100 with their main factors](docs/slides/img/ryzyko.jpg) |
+
+## Dla jury
+
+Narzędzie do ciągłego discovery dużych sieci: bezpieczny skaner (nmap + HTTP + sygnatury), pasywny
+sensor, który budzi skan tam, gdzie coś się zmieniło, i konsola operatora z rolami, edycją i szyfrowaniem.
+
+| Co | Gdzie |
+|---|---|
+| **Demo na żywo** | <https://silent.zjadlabymciastko.net>, konto `jury` (tylko odczyt, hasło od zespołu). Na czas oceny adres otwiera się od razu na ekranie logowania konsoli; poza nim stoi przed nim Cloudflare Access |
+| **Prezentacja** (10 slajdów) | [PDF](docs/slides/silence-on-the-wire.pdf) |
+| **Scenariusz demo** (co kliknąć, czego się spodziewać) | [docs/DEMO.md](docs/DEMO.md) |
+| **Dokumentacja techniczna**, odpowiedzi na trzy pytania z zadania | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [sekcja 6](docs/ARCHITECTURE.md#6-odpowiedzi-na-pytania-z-zadania) |
+| **Zgodność z zadaniem**, wymaganie po wymaganiu, z lukami | [docs/COMPLIANCE.md](docs/COMPLIANCE.md) |
+
+Kryteria testowe (sekcja 6 zadania) i miejsce, w którym je sprawdzić:
+
+| Kryterium | Jak sprawdzić |
+|---|---|
+| Aktywne hosty, usługi, fingerprinting, CMS, nagłówki i ciasteczka | `scanner -t … -o scan.json`, [DEMO, kroki 2–3](docs/DEMO.md#krok-2-skan-odniesienia) |
+| Własne sygnatury | `-signatures plik.yaml`, przykłady w [`internal/fingerprint/signatures/`](internal/fingerprint/signatures/) |
+| Porównanie skanów | `scanner diff`, [DEMO, krok 4](docs/DEMO.md#krok-4-zmiana-między-przebiegami-diff) |
+| Hosty niestabilne | trigger i werdykty, [ARCHITECTURE 6.3](docs/ARCHITECTURE.md#63-po-jakim-czasie-braku-odpowiedzi-raportować-host-jako-nieaktywny) |
+| Bezpieczeństwo skanera | [ARCHITECTURE 5.1](docs/ARCHITECTURE.md#51-skaner): tylko GET, bez NSE, allowlista, limity tempa |
+| Dashboard, import i eksport, edycja, role | konsola, [DEMO, część A](docs/DEMO.md#a-publiczne-demo-co-klika-jury); eksport: `scanner export` |
+
+The rest of this README is in English.
 
 ## Why
 
@@ -38,28 +63,6 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
 
 ## What works today
 
-- **AI edge gate** (`cmd/edgegate`, optional): a calibrated Tree+GNB →
-  Basal+Laya+Kev cascade that can sit between the sensor and the trigger
-  (`edgegate serve`): it scores events, forwards the interesting ones with a
-  `score`, and always passes events about services that went silent or closed.
-  Without it the sensor talks to the trigger directly. Weights (~2.5 GB) are
-  downloaded and SHA256-verified from pinned upstream revisions, not committed.
-  The 50% target is calibrated on synthetic data and is not a hard quota.
-  See [setup, smoke test and sensor integration](deploy/cascade50/README.md).
-
-- **Sensor** (`cmd/sensor`): captures with libpcap on one or more interfaces (or replays
-  a pcap) with a kernel BPF filter that keeps only ARP, SYN/RST and HTTP response heads.
-  It builds a baseline of hosts, services and stable HTTP banner fingerprints, persists
-  it across restarts, and prints JSON-lines events:
-
-  | Event | Meaning |
-  |---|---|
-  | `host_new`, `service_new` | not in the baseline before |
-  | `service_changed` | HTTP banner fingerprint changed (`Server`, `X-Powered-By`, `X-Env`, ...) |
-  | `service_closed` | a SYN was answered with RST: the host is up, the port is closed |
-  | `host_silent`, `service_silent` | no traffic for `-silent-after`: maybe gone, maybe just quiet |
-  | `host_back`, `service_back` | seen again after closed/silent |
-
 - **Scanner** (`cmd/scanner`): safe discovery scan of IPs, CIDRs (up to /12) and
   hostnames, split into chunks scanned by parallel nmap processes (`-sT` connect scan by
   default, `-sV`, rate limit, no NSE scripts or OS detection), with chunk and total
@@ -70,7 +73,9 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   IoT devices, plus staging environments, admin panels, setup and default pages).
   `scanner diff` compares two results: new, gone and changed hosts and services.
 
-  *Why the favicon?* Most web apps ship with a default icon, and almost nobody replaces
+  <details><summary><b>Why the favicon?</b></summary>
+
+  Most web apps ship with a default icon, and almost nobody replaces
   it: an admin may hide the `Server` header, the version and the page title, but Gitea,
   phpMyAdmin or a router panel still serves its stock `favicon.ico`. A hash of that file
   therefore identifies the product even when nothing else in the response does. The hash
@@ -79,7 +84,11 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   (`http.favicon.hash:<n>`) to find other instances. A changed hash between two scans
   means a different application, or version, now answers on that address.
 
-  *Why our own signature format?* There is no single standard, only de facto ones, each
+  </details>
+
+  <details><summary><b>Why our own signature format?</b> (and how to import Wappalyzer and nuclei)</summary>
+
+  There is no single standard, only de facto ones, each
   covering part of the job: Wappalyzer/webappanalyzer (JSON, the largest web technology
   base, but passive: one response, no paths, no favicon hashes, no nmap data), nuclei
   templates (YAML with favicon hashes, but a whole engine that sends its own requests,
@@ -111,6 +120,22 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   54,000 nuclei, most of them individual WordPress plugins and themes); the engine
   loads them in under a second. The generated file is data, not code — re-run the
   importer against newer sources instead of editing it by hand.
+
+  </details>
+
+- **Sensor** (`cmd/sensor`): captures with libpcap on one or more interfaces (or replays
+  a pcap) with a kernel BPF filter that keeps only ARP, SYN/RST and HTTP response heads.
+  It builds a baseline of hosts, services and stable HTTP banner fingerprints, persists
+  it across restarts, and prints JSON-lines events:
+
+  | Event | Meaning |
+  |---|---|
+  | `host_new`, `service_new` | not in the baseline before |
+  | `service_changed` | HTTP banner fingerprint changed (`Server`, `X-Powered-By`, `X-Env`, ...) |
+  | `service_closed` | a SYN was answered with RST: the host is up, the port is closed |
+  | `host_silent`, `service_silent` | no traffic for `-silent-after`: maybe gone, maybe just quiet |
+  | `host_back`, `service_back` | seen again after closed/silent |
+
 - **Trigger** (`cmd/trigger`): receives sensor events (`sensor -webhook`) and runs
   targeted scans through the same pipeline: new or changed services and hosts are
   scanned, silent or closed ones verified. Each scan becomes a finding with a verdict
@@ -120,12 +145,7 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   ignored; bursts are debounced; a quiet window drops events caused by the scan itself;
   per-target cooldowns, a 30-minute pause on re-verifying targets found alive, a global
   rate limit and a pending-job cap keep the active side bounded.
-- **Export** (`scanner export`): CSV (one row per open service, or per trigger finding),
-  JSON, nmap XML, and DefectDojo. Selected observations (admin panels, unfinished
-  installations, default pages, staging, self-signed or expired certificates, outdated
-  components) become informational findings with their evidence, linked to their
-  endpoint. A stable `unique_id_from_tool` keeps later runs from creating duplicates:
-  they refresh the evidence and leave analysts' decisions, severities and tags alone.
+
 - **Operator console** (`cmd/console`, `go run ./cmd/console -demo`): the web UI and API on top of
   everything above. Cases from sensor events and trigger findings (`POST /logs`,
   `/events`, `/findings`, bearer token `ASI_CENTRAL_TOKEN`), an attack-surface map with a time
@@ -136,12 +156,30 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   note, status) are kept separately and survive re-imports. **RBAC**: 22 permissions, built-in
   roles `admin`, `editor`, `analyst`, `viewer` plus custom roles, audit trail. **Encryption at
   rest**: AES-256-GCM (`ASIE` header) for the console's accounts, roles, settings, cases,
-  inventory, TLS state and audit log. The console stores and edits data; it does not start scans
-  (use `scanner`, `scanner schedule` or the trigger). Walkthrough: [`docs/DEMO.md`](docs/DEMO.md).
+  inventory, TLS state and audit log. The console does not scan the targets typed into the form itself
+  (use `scanner`, `scanner schedule` or the trigger, then import the result); a case's "scan"
+  action can ask the trigger for a targeted scan when `ASI_TRIGGER_URL` is set. Walkthrough: [`docs/DEMO.md`](docs/DEMO.md).
+
+- **Export** (`scanner export`): CSV (one row per open service, or per trigger finding),
+  JSON, nmap XML, and DefectDojo. Selected observations (admin panels, unfinished
+  installations, default pages, staging, self-signed or expired certificates, outdated
+  components) become informational findings with their evidence, linked to their
+  endpoint. A stable `unique_id_from_tool` keeps later runs from creating duplicates:
+  they refresh the evidence and leave analysts' decisions, severities and tags alone.
+
+- **AI edge gate** (`cmd/edgegate`, optional): a calibrated Tree+GNB →
+  Basal+Laya+Kev cascade that can sit between the sensor and the trigger
+  (`edgegate serve`): it scores events, forwards the interesting ones with a
+  `score`, and always passes events about services that went silent or closed.
+  Without it the sensor talks to the trigger directly. Weights (~2.5 GB) are
+  downloaded and SHA256-verified from pinned upstream revisions, not committed.
+  The 50% target is calibrated on synthetic data and is not a hard quota.
+  See [setup, smoke test and sensor integration](deploy/cascade50/README.md).
 
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
+
 - **Lab overlay for the CBI AGH templates** (`lab/agh/`): adds traffic, an unstable
   host and the sensor to their `custom-network` stack without modifying their files
   (included in `lab/agh/upstream/`).
@@ -191,15 +229,18 @@ make build
 ./bin/scanner diff scan1.json scan2.json          # -json, -exit-code
 ```
 
-Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `-Pn`,
-`-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-parallel`, `-chunk-time 1m` (chunks are sized
-by the measured speed to take about this long; `-chunk N` fixes the size instead),
-`-version-mode` (`balanced`: short `-sV` waits, then ports left unidentified again with
-nmap's own; `fast`: no second pass; `full`: plain nmap), `-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
-Imported Wappalyzer/nuclei signature bases work too, see `cmd/sigimport`.
-`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`),
-`-cve` (map detected product versions to CVEs, see below), `-cve-cache` (cache dir,
-default `var/cve-cache`).
+Useful flags:
+
+| Flag | Meaning |
+|---|---|
+| `-f targets.txt`, `-allow 10.0.0.0/16` | targets from a file; refuse targets outside the range |
+| `-Pn`, `-sS` | skip host discovery; SYN scan (needs `CAP_NET_RAW`) |
+| `-max-rate`, `-parallel` | packets per second per nmap process (300), number of processes (4) |
+| `-chunk-time 1m` / `-chunk N` | size chunks by the measured speed to take about this long / fix the size |
+| `-version-mode` | `balanced`: short `-sV` waits, then ports left unidentified again with nmap's own; `fast`: no second pass; `full`: plain nmap |
+| `-signatures extra.yaml` | custom signatures (format: `internal/fingerprint/signatures/`), also bases imported with `cmd/sigimport` |
+| `-probe=false`, `-fingerprint-paths=false` | no HTTP probing; no extra GETs such as `/wp-login.php` |
+| `-cve`, `-cve-cache` | map detected product versions to CVEs (below); cache directory, default `var/cve-cache` |
 
 ### CVE enrichment (NVD + EPSS)
 
@@ -238,6 +279,7 @@ token needs permission to create findings there (and products, if they are missi
 ### Scheduled scans
 
 ```bash
+mkdir -p results
 ./bin/scanner schedule -window 22:00-05:00 -tz Europe/Warsaw -every daily@22:00 \
   -checkpoint state.jsonl -out results -f targets.txt -allow 10.0.0.0/16
 ```
@@ -249,7 +291,7 @@ each finished chunk, probed and fingerprinted, is already in the checkpoint. Res
 the same command resumes too. Chunks are sized to finish before the window closes, and the
 log shows when the whole run is expected to end. Each completed run becomes
 `results/scan-<start>.json` with its sessions, chunk durations and the reason for each
-chunk size. All flags of a plain scan apply; changing the targets or what is scanned
+chunk size. All flags of a plain scan apply except `-cve`; changing the targets or what is scanned
 starts over, changing speed limits does not.
 
 ### Sensor + trigger
@@ -314,7 +356,7 @@ docker compose -f lab/agh/upstream/docker-compose-custom-network.yml \
 
 `lab/agh/scenario.sh` runs a scripted scenario (banner change, service stop/start, new
 host, flapping service) and prints which event to expect after each step. See
-`lab/agh/README.md`. Their own demo works with the scanner too:
+[`lab/agh/README.md`](lab/agh/README.md). Their own demo works with the scanner too:
 
 ```bash
 P=2223,3001,5673,8787,8888,15432,15673
@@ -340,16 +382,6 @@ make lab-down
 ```bash
 make test     # go vet + go test (needs libpcap-dev)
 ```
-
-Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, baseline),
-`internal/scan` (targets, chunks, nmap), `internal/probe` (HTTP/TLS), `internal/fingerprint`
-(signatures), `internal/pipeline` (scan + probe + fingerprint),
-`internal/schedule` (windows, frequency, checkpoints), `internal/diff`, `internal/export` (CSV, DefectDojo),
-`internal/trigger` (policy, service), `internal/result` (shared model), `internal/traffic`,
-`internal/vuln` (NVD/EPSS/KEV), `internal/sigimport`, `internal/atrest` (AES-GCM), `internal/classify`,
-`internal/tlspolicy`, `internal/exposure`, `internal/riskscore` (used by the console),
-`internal/edge` (edgegate), `lab/` (test environments), `deploy/` (demo, cascade50),
-`Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`, `console`).
 
 ## Blog
 
