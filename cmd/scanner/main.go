@@ -5,6 +5,7 @@
 //	scanner -t 127.0.0.1 -p 2223,3001,5673,8787,8888,15432,15673 -Pn -o scan.json
 //	scanner -f targets.txt -allow 10.0.0.0/16 -max-rate 300
 //	scanner diff old.json new.json
+//	scanner export -format csv scan.json
 package main
 
 import (
@@ -30,6 +31,10 @@ func main() {
 	log.SetPrefix("scanner: ")
 	if len(os.Args) > 1 && os.Args[1] == "diff" {
 		runDiff(os.Args[2:])
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "export" {
+		runExport(os.Args[2:])
 		return
 	}
 	var (

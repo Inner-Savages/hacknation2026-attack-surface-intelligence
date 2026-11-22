@@ -85,6 +85,12 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   ignored; bursts are debounced; a quiet window drops events caused by the scan itself;
   per-target cooldowns, a 30-minute pause on re-verifying targets found alive, a global
   rate limit and a pending-job cap keep the active side bounded.
+- **Export** (`scanner export`): CSV (one row per open service, or per trigger finding),
+  JSON, nmap XML, and DefectDojo. Selected observations (admin panels, unfinished
+  installations, default pages, staging, self-signed or expired certificates, outdated
+  components) become informational findings with their evidence, linked to their
+  endpoint. A stable `unique_id_from_tool` keeps later runs from creating duplicates:
+  they refresh the evidence and leave analysts' decisions, severities and tags alone.
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
@@ -141,6 +147,26 @@ Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `
 `-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-chunk` and `-parallel` (chunking),
 `-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
 `-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`).
+
+### Export to CSV and DefectDojo
+
+```bash
+./bin/scanner export -o scan.csv scan.json
+./bin/scanner export -findings trigger-state/findings.jsonl -o findings.csv
+./bin/scanner export -format defectdojo -dry-run scan.json       # what would be sent
+export DEFECTDOJO_TOKEN=...                                      # or -token-file
+./bin/scanner export -format defectdojo -url https://dojo.example.org scan.json
+```
+
+`-select` picks observations (`default,category:database,tech:Gitea,tag:login`, or single
+rules such as `admin-panel,cert-expired`), `-min-confidence` drops weak ones, `-findings`
+adds what the sensor and the trigger noticed as evidence, `-previous old.json` supplies
+first-seen dates, `-nmap` also feeds DefectDojo's own "Nmap Scan" importer. `-product`,
+`-engagement` and `-test` name the place in DefectDojo, created if missing. Findings are
+matched within the test, so give networks with overlapping addresses separate tests. All
+scans on the command line count as current; findings missing from them are not closed. The
+token needs permission to create findings there (and products, if they are missing).
+`lab/defectdojo/` runs a local instance for trying it out.
 
 ### Sensor + trigger
 
@@ -213,7 +239,7 @@ make test     # go vet + go test (needs libpcap-dev)
 
 Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, baseline),
 `internal/scan` (targets, chunks, nmap), `internal/probe` (HTTP/TLS), `internal/fingerprint`
-(signatures), `internal/pipeline` (scan + probe + fingerprint), `internal/diff`,
+(signatures), `internal/pipeline` (scan + probe + fingerprint), `internal/diff`, `internal/export` (CSV, DefectDojo),
 `internal/trigger` (policy, service), `internal/result` (shared model), `internal/traffic`,
 `lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`).
 
