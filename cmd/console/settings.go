@@ -28,6 +28,14 @@ type settings struct {
 	AIBaseURL string `json:"ai_base_url,omitempty"`
 	AIModel   string `json:"ai_model,omitempty"`
 	AIAPIKey  string `json:"ai_api_key,omitempty"` // write-only in API responses
+
+	// Ground truth: periodic active control scans of passively silent
+	// hosts. Without them a host that stops speaking is indistinguishable
+	// from a host that is off (the silent_stealth observability gap).
+	GTEnabled     *bool `json:"gt_enabled,omitempty"`      // default on
+	GTIntervalMin int   `json:"gt_interval_min,omitempty"` // default 360 (6 h)
+	GTSilentMin   int   `json:"gt_silent_min,omitempty"`   // default 60: silence that qualifies for a scan
+	GTSampleSize  int   `json:"gt_sample_size,omitempty"`  // default 50 hosts per run
 }
 
 func openSettings(dir string) (*settings, error) {
@@ -67,6 +75,11 @@ type configPatch struct {
 	AIBaseURL  *string `json:"ai_base_url"`
 	AIModel    *string `json:"ai_model"`
 	AIAPIKey   *string `json:"ai_api_key"`
+
+	GTEnabled     *bool `json:"gt_enabled"`
+	GTIntervalMin *int  `json:"gt_interval_min"`
+	GTSilentMin   *int  `json:"gt_silent_min"`
+	GTSampleSize  *int  `json:"gt_sample_size"`
 }
 
 // update applies the non-nil fields of the patch and persists the result.
@@ -91,6 +104,18 @@ func (s *settings) update(p configPatch) error {
 	if p.AIAPIKey != nil {
 		s.AIAPIKey = *p.AIAPIKey
 	}
+	if p.GTEnabled != nil {
+		s.GTEnabled = p.GTEnabled
+	}
+	if p.GTIntervalMin != nil && *p.GTIntervalMin >= 0 {
+		s.GTIntervalMin = *p.GTIntervalMin
+	}
+	if p.GTSilentMin != nil && *p.GTSilentMin >= 0 {
+		s.GTSilentMin = *p.GTSilentMin
+	}
+	if p.GTSampleSize != nil && *p.GTSampleSize >= 0 {
+		s.GTSampleSize = *p.GTSampleSize
+	}
 	return s.saveLocked()
 }
 
@@ -100,6 +125,8 @@ func (s *settings) snapshot() settings {
 	return settings{
 		DemoFeed: s.DemoFeed, AIOperator: s.AIOperator, RuleMode: s.RuleMode,
 		AIBaseURL: s.AIBaseURL, AIModel: s.AIModel, AIAPIKey: s.AIAPIKey,
+		GTEnabled: s.GTEnabled, GTIntervalMin: s.GTIntervalMin,
+		GTSilentMin: s.GTSilentMin, GTSampleSize: s.GTSampleSize,
 	}
 }
 

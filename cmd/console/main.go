@@ -60,6 +60,23 @@ func main() {
 		operator: *operator, aiAuto: *aiAuto, aiOpDefault: *aiOperator, demoDefault: *demo,
 		auth: userAuth, settings: cfg, rules: rules,
 	}
+	// Ground truth: periodic active control scans of passively silent hosts,
+	// so the silent_stealth observability gap is measured, not invisible.
+	gt, err := newGroundTruth(*dataDir, store, feed, cfg, *operator)
+	if err != nil {
+		log.Fatalf("open host registry: %v", err)
+	}
+	srv.gt = gt
+	go func() {
+		for range time.Tick(time.Minute) {
+			gt.tick()
+		}
+	}()
+	go func() {
+		for range time.Tick(5 * time.Minute) {
+			gt.flush()
+		}
+	}()
 	if *demo {
 		relightDemo(store)
 	}
