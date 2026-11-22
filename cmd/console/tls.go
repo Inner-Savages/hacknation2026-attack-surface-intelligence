@@ -84,7 +84,7 @@ func newTLSMonitor(dir string, st *Store, feed *LiveFeed, cfg *settings, gt *gro
 		settings: cfg, store: st, feed: feed, gt: gt,
 		path: filepath.Join(dir, "tls.json"),
 	}
-	b, err := os.ReadFile(m.path)
+	b, err := rest.ReadFile(m.path)
 	if err == nil {
 		_ = json.Unmarshal(b, &m.state)
 	} else if !os.IsNotExist(err) {
@@ -107,11 +107,7 @@ func (m *tlsMonitor) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := m.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, m.path)
+	return rest.WriteFile(m.path, b, 0o600)
 }
 
 // tlsConfig resolves the effective policy: on by default (pure arithmetic

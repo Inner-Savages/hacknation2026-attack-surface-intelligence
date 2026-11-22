@@ -5,6 +5,7 @@
 //	./sensor -i br-asilab -learn 30s
 //	./sensor -i br-front,br-back -net 172.18.0.0/16
 //	./sensor -i 'br-*'          # every Docker bridge
+//	./sensor -i 'br-*,!br-edge*' -exclude-net 172.18.0.0/16,10.0.0.5
 //	./sensor -r capture.pcap -net 172.28.0.0/24
 package main
 
@@ -46,16 +47,20 @@ type capture struct {
 
 func main() {
 	var (
-		ifaces      = flag.String("i", "", `comma-separated interfaces to capture on live, globs allowed ("br-*" = every Docker bridge that is up); needs CAP_NET_RAW`)
+		ifaces      = flag.String("i", "", `comma-separated interfaces to capture on live, globs allowed ("br-*" = every Docker bridge that is up), "!name" or "!glob" excludes ("br-*,!br-edge*"); needs CAP_NET_RAW`)
 		pcapFile    = flag.String("r", "", "replay a pcap/pcapng file instead of live capture")
 		filter      = flag.String("f", sensor.DefaultBPF, "BPF filter applied in the kernel (empty = capture everything)")
 		snapLen     = flag.Int("snaplen", sensor.DefaultSnapLen, "bytes captured per packet")
 		nets        = flag.String("net", "auto", `comma-separated prefixes to watch; "auto" = subnets of the capture interfaces, "" = everything`)
+		excludeNets = flag.String("exclude-net", os.Getenv("SOTW_EXCLUDE_NET"), "comma-separated prefixes or addresses to ignore inside -net, e.g. your own infrastructure: no events, nothing added to the baseline (default $SOTW_EXCLUDE_NET)")
 		statePath   = flag.String("state", "sensor-state.json", "baseline file (loaded at start, saved periodically)")
 		silentAfter = flag.Duration("silent-after", 2*time.Minute, "mark host/service silent after this long without traffic (0 = never)")
 		learn       = flag.Duration("learn", 0, "build the baseline without emitting events for this long")
 		sweepEvery  = flag.Duration("sweep", 10*time.Second, "how often to check for silent hosts/services")
 		saveEvery   = flag.Duration("save", 30*time.Second, "how often to persist the baseline")
+		webhookURL  = flag.String("webhook", "", "also POST events (JSON arrays) to this URL, e.g. http://127.0.0.1:8099/events; several URLs separated by commas each get every event (same token)")
+		webhookTok  = flag.String("webhook-token", os.Getenv("SOTW_WEBHOOK_TOKEN"), "bearer token for -webhook (default $SOTW_WEBHOOK_TOKEN)")
+		name        = flag.String("name", "", "sensor name added to every event")
 	)
 	flag.Parse()
 	log.SetFlags(log.Ltime)
@@ -73,9 +78,16 @@ func main() {
 		}
 	}
 
-	prefixes, err := watchedPrefixes(*nets, names)
-	if err != nil {
+	var scope sensor.Scope
+	var err error
+	if scope.Watch, err = watchedPrefixes(*nets, names); err != nil {
 		log.Fatal(err)
+	}
+	if scope.Exclude, err = sensor.ParsePrefixes(*excludeNets); err != nil {
+		log.Fatalf("-exclude-net: %v", err)
+	}
+	if err := scope.Validate(); err != nil {
+		log.Fatalf("nothing to watch: %v", err)
 	}
 
 	captures, start, err := openCaptures(names, *pcapFile, *filter, *snapLen)
@@ -88,17 +100,29 @@ func main() {
 		}
 	}()
 
+	var hooks []*sensor.Webhook
+	for _, u := range strings.Split(*webhookURL, ",") {
+		if u = strings.TrimSpace(u); u != "" {
+			h := sensor.NewWebhook(u, *webhookTok, 4096)
+			h.Logf = log.Printf
+			hooks = append(hooks, h)
+		}
+	}
 	var outMu sync.Mutex
 	enc := json.NewEncoder(os.Stdout)
 	emit := func(e sensor.Event) {
+		e.Sensor = *name
 		outMu.Lock()
 		defer outMu.Unlock()
 		if err := enc.Encode(e); err != nil {
 			log.Printf("write event: %v", err)
 		}
+		for _, h := range hooks {
+			h.Send(e)
+		}
 	}
 
-	cfg := sensor.Config{SilentAfter: *silentAfter, Start: start}
+	cfg := sensor.Config{SilentAfter: *silentAfter, Start: start, Scope: scope}
 	if *learn > 0 {
 		cfg.LearnUntil = start.Add(*learn)
 	}
@@ -124,7 +148,16 @@ func main() {
 		// Live: wall-clock timers. Replay sweeps in packet time instead.
 		go every(ctx, *sweepEvery, func() { tracker.Sweep(time.Now()) })
 		go every(ctx, *saveEvery, save)
-		log.Printf("capturing on %s, watching %s, filter %q", strings.Join(names, ","), formatPrefixes(prefixes), *filter)
+		log.Printf("capturing on %s, watching %s, filter %q", strings.Join(names, ","), formatScope(scope), *filter)
+	}
+
+	var hookWG sync.WaitGroup
+	for _, h := range hooks {
+		hookWG.Add(1)
+		go func() { defer hookWG.Done(); h.Run(ctx) }()
+	}
+	if len(hooks) > 0 {
+		log.Printf("sending events to %s", *webhookURL)
 	}
 
 	var packets atomic.Int64
@@ -133,13 +166,18 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			readLoop(ctx, c, sensor.NewDecoder(prefixes), tracker, live, *sweepEvery, &packets)
+			readLoop(ctx, c, sensor.NewDecoder(scope), tracker, live, *sweepEvery, &packets)
 			if !live {
 				stop() // end of the pcap file
 			}
 		}()
 	}
 	wg.Wait()
+	stop()        // replay ends on EOF without a signal
+	hookWG.Wait() // last flush of queued events
+	for _, h := range hooks {
+		log.Printf("webhook: %d events sent, %d dropped", h.Sent(), h.Dropped())
+	}
 
 	if live {
 		var passed, dropped int
@@ -306,7 +344,11 @@ func resolveInterfaces(specs []string) ([]string, error) {
 // address, e.g. 172.18.0.1/16); with no interfaces (replay) it means all.
 func watchedPrefixes(spec string, ifaces []string) ([]netip.Prefix, error) {
 	if spec != "auto" {
-		return parsePrefixes(spec)
+		ps, err := sensor.ParsePrefixes(spec)
+		if err != nil {
+			return nil, fmt.Errorf("-net: %w", err)
+		}
+		return ps, nil
 	}
 	var out []netip.Prefix
 	for _, name := range ifaces {
@@ -338,27 +380,15 @@ func watchedPrefixes(spec string, ifaces []string) ([]netip.Prefix, error) {
 	return out, nil
 }
 
-func parsePrefixes(s string) ([]netip.Prefix, error) {
-	var out []netip.Prefix
-	for _, p := range splitList(s) {
-		pfx, err := netip.ParsePrefix(p)
-		if err != nil {
-			return nil, fmt.Errorf("-net: %w", err)
-		}
-		out = append(out, pfx.Masked())
+func formatScope(s sensor.Scope) string {
+	out := "everything"
+	if len(s.Watch) > 0 {
+		out = sensor.FormatPrefixes(s.Watch)
 	}
-	return out, nil
-}
-
-func formatPrefixes(ps []netip.Prefix) string {
-	if len(ps) == 0 {
-		return "everything"
+	if len(s.Exclude) > 0 {
+		out += " except " + sensor.FormatPrefixes(s.Exclude)
 	}
-	s := make([]string, len(ps))
-	for i, p := range ps {
-		s[i] = p.String()
-	}
-	return strings.Join(s, ",")
+	return out
 }
 
 func splitList(s string) []string {

@@ -9,9 +9,9 @@ import (
 )
 
 // Decoder turns raw Ethernet frames into observations about hosts inside
-// the watched prefixes. Not safe for concurrent use (reuses buffers).
+// the scope. Not safe for concurrent use (reuses buffers).
 type Decoder struct {
-	nets    []netip.Prefix
+	scope   Scope
 	parser  *gopacket.DecodingLayerParser
 	eth     layers.Ethernet
 	arp     layers.ARP
@@ -21,28 +21,13 @@ type Decoder struct {
 	decoded []gopacket.LayerType
 }
 
-// NewDecoder watches only addresses inside nets (empty = everything).
-func NewDecoder(nets []netip.Prefix) *Decoder {
-	d := &Decoder{nets: nets}
+// NewDecoder reports only on addresses inside scope.
+func NewDecoder(scope Scope) *Decoder {
+	d := &Decoder{scope: scope}
 	d.parser = gopacket.NewDecodingLayerParser(layers.LayerTypeEthernet,
 		&d.eth, &d.arp, &d.ip4, &d.tcp, &d.payload)
 	d.parser.IgnoreUnsupported = true // UDP, IPv6, ICMP...: skipped for now
 	return d
-}
-
-func (d *Decoder) watched(a netip.Addr) bool {
-	if !a.IsValid() || a.IsUnspecified() {
-		return false
-	}
-	if len(d.nets) == 0 {
-		return true
-	}
-	for _, n := range d.nets {
-		if n.Contains(a) {
-			return true
-		}
-	}
-	return false
 }
 
 // Decode returns the observations carried by one frame.
@@ -59,12 +44,12 @@ func (d *Decoder) Decode(frame []byte, ts time.Time) []Observation {
 			mac = d.eth.SrcMAC.String()
 		case layers.LayerTypeARP:
 			ip, ok := netip.AddrFromSlice(d.arp.SourceProtAddress)
-			if ok && d.watched(ip.Unmap()) {
+			if ok && d.scope.Contains(ip.Unmap()) {
 				out = append(out, Observation{Time: ts, IP: ip.Unmap(), MAC: mac, Signal: SignalSeen})
 			}
 		case layers.LayerTypeIPv4:
 			ip, ok := netip.AddrFromSlice(d.ip4.SrcIP)
-			if ok && d.watched(ip.Unmap()) {
+			if ok && d.scope.Contains(ip.Unmap()) {
 				src = ip.Unmap()
 				out = append(out, Observation{Time: ts, IP: src, MAC: mac, Signal: SignalSeen})
 			}
