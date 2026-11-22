@@ -4,7 +4,8 @@
 //   - which events lead to which kind of scan,
 //   - an allow list: nothing outside it is ever scanned,
 //   - the scanner's own addresses are ignored (its traffic makes the sensor
-//     report the scanning host itself),
+//     report the scanning host itself), and so are networks on the ignore
+//     list (own infrastructure inside the allowed ranges),
 //   - debounce: events for one target within a few seconds become one scan,
 //   - quiet window: events for a target while it is being scanned and shortly
 //     after are dropped, because the scan itself causes them (new ports seen
@@ -63,6 +64,7 @@ type Job struct {
 type Policy struct {
 	Allow          []netip.Prefix // required: targets outside are never scanned
 	Self           []netip.Addr   // our own addresses: events about them are ignored
+	Ignore         []netip.Prefix // never scanned even inside Allow
 	Debounce       time.Duration  // default 5s
 	Quiet          time.Duration  // default 15s after a scan of the target ends
 	Cooldown       time.Duration  // default 60s between scans of one target
@@ -130,13 +132,16 @@ func (p *Policy) Offer(e sensor.Event, now time.Time) (bool, string) {
 	if !ok {
 		return p.drop("unknown event type")
 	}
-	if !t.IP.IsValid() || !p.allowed(t.IP) {
+	if !t.IP.IsValid() || !contains(p.Allow, t.IP) {
 		return p.drop("outside allow list")
 	}
 	for _, a := range p.Self {
 		if a == t.IP {
 			return p.drop("scanner's own address")
 		}
+	}
+	if contains(p.Ignore, t.IP.Unmap()) {
+		return p.drop("ignored network")
 	}
 	// Quiet is per address: scanning one port also wakes the host up in the
 	// sensor's eyes, and a host scan finds ports the sensor never saw.
@@ -206,8 +211,8 @@ func (p *Policy) drop(reason string) (bool, string) {
 	return false, reason
 }
 
-func (p *Policy) allowed(a netip.Addr) bool {
-	for _, pr := range p.Allow {
+func contains(ps []netip.Prefix, a netip.Addr) bool {
+	for _, pr := range ps {
 		if pr.Contains(a) {
 			return true
 		}

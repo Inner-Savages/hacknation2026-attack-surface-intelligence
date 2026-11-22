@@ -33,6 +33,15 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
 
 ## What works today
 
+- **AI edge gate** (`cmd/edgegate`, optional): a calibrated Tree+GNB →
+  Basal+Laya+Kev cascade that can sit between the sensor and the trigger
+  (`edgegate serve`): it scores events, forwards the interesting ones with a
+  `score`, and always passes events about services that went silent or closed.
+  Without it the sensor talks to the trigger directly. Weights (~2.5 GB) are
+  downloaded and SHA256-verified from pinned upstream revisions, not committed.
+  The 50% target is calibrated on synthetic data and is not a hard quota.
+  See [setup, smoke test and sensor integration](deploy/cascade50/README.md).
+
 - **Sensor** (`cmd/sensor`): captures with libpcap on one or more interfaces (or replays
   a pcap) with a kernel BPF filter that keeps only ARP, SYN/RST and HTTP response heads.
   It builds a baseline of hosts, services and stable HTTP banner fingerprints, persists
@@ -73,9 +82,30 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   `-sV`), Recog and WhatWeb. Our format is small (one kind of evidence per matcher) and
   combines nmap results, the HTTP response, the favicon and safe GET-only paths, with
   weights that add up to a confidence score. It also has rules those bases lack, such as
-  "staging" or "admin panel". The cost is that we don't get thousands of signatures for
-  free. The natural next step is an importer that translates Wappalyzer technologies and
-  nuclei favicon hashes into this format, without adopting their engines.
+  "staging" or "admin panel". The cost — not getting thousands of signatures for free —
+  is covered by the importer (`cmd/sigimport`), which translates Wappalyzer technologies
+  and nuclei detection templates (including the favicon mmh3 hashes and the bulk
+  WordPress plugin/theme lists) into this format, without adopting their engines:
+
+  ```bash
+  git clone --depth 1 https://github.com/enthec/webappanalyzer
+  git clone --depth 1 https://github.com/projectdiscovery/nuclei-templates
+  go run ./cmd/sigimport \
+      -wappalyzer webappanalyzer/src/technologies \
+      -nuclei nuclei-templates/http/technologies \
+      -o signatures-imported.yaml
+  ./bin/scanner -t 10.0.0.0/24 -signatures signatures-imported.yaml ...
+  ```
+
+  The importer converts only evidence our passive model can honour (headers, cookies,
+  HTML/meta/script patterns, fixed paths, favicon hashes) and reports the rest as
+  skipped: Wappalyzer `js`/`dom`/`dns`/`xhr` need a browser or resolver, and nuclei
+  requests whose `and`-condition depends on an untranslatable matcher are dropped
+  whole, because keeping half of a conjunction would create false positives. On the
+  current sources this yields about 60,000 signatures (roughly 6,000 Wappalyzer and
+  54,000 nuclei, most of them individual WordPress plugins and themes); the engine
+  loads them in under a second. The generated file is data, not code — re-run the
+  importer against newer sources instead of editing it by hand.
 - **Trigger** (`cmd/trigger`): receives sensor events (`sensor -webhook`) and runs
   targeted scans through the same pipeline: new or changed services and hosts are
   scanned, silent or closed ones verified. Each scan becomes a finding with a verdict
@@ -85,6 +115,12 @@ network traffic ──► [ passive sensor ] ── webhook ──► [ trigger 
   ignored; bursts are debounced; a quiet window drops events caused by the scan itself;
   per-target cooldowns, a 30-minute pause on re-verifying targets found alive, a global
   rate limit and a pending-job cap keep the active side bounded.
+- **Export** (`scanner export`): CSV (one row per open service, or per trigger finding),
+  JSON, nmap XML, and DefectDojo. Selected observations (admin panels, unfinished
+  installations, default pages, staging, self-signed or expired certificates, outdated
+  components) become informational findings with their evidence, linked to their
+  endpoint. A stable `unique_id_from_tool` keeps later runs from creating duplicates:
+  they refresh the evidence and leave analysts' decisions, severities and tags alone.
 - **Traffic generator** (`cmd/traffic`): gentle background traffic for labs (HTTP GETs,
   TCP connects with banner reads), so a passive sensor has something to observe. No
   logins, no exploits.
@@ -107,6 +143,27 @@ Useful flags: `-i br-a,br-b` or `-i 'br-*'` (several interfaces, globs), `-net` 
 `auto` = subnets of the capture interfaces), `-silent-after`, `-learn`, `-state`
 (baseline file), `-r capture.pcap` (replay), `-f` (BPF filter, `""` = everything).
 
+Leaving out your own infrastructure (model containers, the console, the scanner host):
+
+```bash
+./bin/sensor -i 'br-*,!br-edge*,!docker0'                 # do not capture there at all
+./bin/sensor -i 'br-*' -exclude-net 172.18.0.0/16,10.0.0.5 # capture, but report nothing about these
+./bin/trigger -allow 172.16.0.0/12 -ignore-net 172.18.0.0/16  # never scan these, whoever reports them
+```
+
+- In `-i`, `!name` and `!glob` are applied after everything else, in any order, and may
+  match nothing. They beat an explicitly listed name.
+- `-exclude-net` produces no events about those addresses and adds nothing to the baseline.
+  Services that answer an excluded client are still reported: they are not the excluded
+  side. Entries already in a baseline from before are kept unchanged, never reported
+  silent, and count again when the exclusion is removed. The same holds for networks that
+  are no longer captured or not in `-net`.
+- Both `-exclude-net` and `-ignore-net` default to `$SOTW_EXCLUDE_NET`. An exclusion that
+  leaves nothing to watch or scan is an error at startup.
+- The sensor does not ask Docker which networks are yours (that would need access to the
+  Docker socket). Give your own compose network a fixed bridge name instead
+  (`driver_opts: {com.docker.network.bridge.name: br-edge0}`) and exclude it by glob.
+
 ### Scanner
 
 ```bash
@@ -121,7 +178,44 @@ Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `
 by the measured speed to take about this long; `-chunk N` fixes the size instead),
 `-version-mode` (`balanced`: short `-sV` waits, then ports left unidentified again with
 nmap's own; `fast`: no second pass; `full`: plain nmap), `-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
-`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`).
+Imported Wappalyzer/nuclei signature bases work too, see `cmd/sigimport`.
+`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`),
+`-cve` (map detected product versions to CVEs, see below), `-cve-cache` (cache dir,
+default `var/cve-cache`).
+
+### CVE enrichment (NVD + EPSS)
+
+With `-cve` the scanner turns every detected product *and version* into a CPE
+(`internal/vuln`), queries NVD for the matching CVEs and ranks them by **EPSS**
+exploitation probability from FIRST, flagging anything on the **CISA KEV** list
+of actively exploited vulnerabilities. Each technology in the result then carries
+up to five entries like `CVE-2021-42013 — CVSS 9.8, EPSS 0.97, KEV`, so a diff
+stops being a list of changes and becomes a ranked risk picture. Lookups are
+fail-soft (no network, no enrichment) and cached on disk (NVD 7 days, EPSS/KEV
+24 h); `NVD_API_KEY` raises the anonymous NVD quota ~10x. Products and versions
+come from the fingerprint detections and from service banners (OpenSSH, Apache,
+nginx, IIS, MySQL/MariaDB, Redis, PostgreSQL, …); a detection without a version
+is deliberately skipped — a versionless lookup is noise, not intelligence.
+
+### Export to CSV and DefectDojo
+
+```bash
+./bin/scanner export -o scan.csv scan.json
+./bin/scanner export -findings trigger-state/findings.jsonl -o findings.csv
+./bin/scanner export -format defectdojo -dry-run scan.json       # what would be sent
+export DEFECTDOJO_TOKEN=...                                      # or -token-file
+./bin/scanner export -format defectdojo -url https://dojo.example.org scan.json
+```
+
+`-select` picks observations (`default,category:database,tech:Gitea,tag:login`, or single
+rules such as `admin-panel,cert-expired`), `-min-confidence` drops weak ones, `-findings`
+adds what the sensor and the trigger noticed as evidence, `-previous old.json` supplies
+first-seen dates, `-nmap` also feeds DefectDojo's own "Nmap Scan" importer. `-product`,
+`-engagement` and `-test` name the place in DefectDojo, created if missing. Findings are
+matched within the test, so give networks with overlapping addresses separate tests. All
+scans on the command line count as current; findings missing from them are not closed. The
+token needs permission to create findings there (and products, if they are missing).
+`lab/defectdojo/` runs a local instance for trying it out.
 
 ### Scheduled scans
 
@@ -150,7 +244,7 @@ tail -f trigger-state/findings.jsonl
 
 Set the same `SOTW_WEBHOOK_TOKEN` for both to require a bearer token. `GET /healthz`
 shows pending and running scans and why events were dropped. Policy flags: `-debounce`,
-`-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`.
+`-ignore-net`, `-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`.
 
 ### Docker images
 
@@ -212,7 +306,7 @@ make test     # go vet + go test (needs libpcap-dev)
 Layout: `cmd/` (binaries), `internal/sensor` (decoder, BPF filter, tracker, baseline),
 `internal/scan` (targets, chunks, nmap), `internal/probe` (HTTP/TLS), `internal/fingerprint`
 (signatures), `internal/pipeline` (scan + probe + fingerprint),
-`internal/schedule` (windows, frequency, checkpoints), `internal/diff`,
+`internal/schedule` (windows, frequency, checkpoints), `internal/diff`, `internal/export` (CSV, DefectDojo),
 `internal/trigger` (policy, service), `internal/result` (shared model), `internal/traffic`,
 `lab/` (test environments), `Dockerfile` (targets `sensor`, `scanner`, `trigger`, `traffic`).
 

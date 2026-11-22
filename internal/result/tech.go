@@ -8,6 +8,18 @@ type Tech struct {
 	Confidence float64  `json:"confidence"`     // 0..1
 	Tags       []string `json:"tags,omitempty"` // admin-panel, staging, ...
 	Evidence   []string `json:"evidence"`
+	Vulns      []Vuln   `json:"vulns,omitempty"` // CVEs affecting this exact version, EPSS-ranked
+}
+
+// Vuln is one known vulnerability affecting a detected product version,
+// ranked by exploitation probability rather than severity alone.
+type Vuln struct {
+	CVE        string  `json:"cve"`
+	CVSS       float64 `json:"cvss,omitempty"`
+	EPSS       float64 `json:"epss"`
+	Percentile float64 `json:"percentile,omitempty"` // EPSS percentile 0..1
+	KEV        bool    `json:"kev,omitempty"`        // CISA Known Exploited Vulnerabilities
+	Summary    string  `json:"summary,omitempty"`
 }
 
 // Page is a fetched HTTP resource used as fingerprinting evidence

@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "basal/basal-omni-pico-Q8_0.gguf",
+      "size": 811843104,
+      "sha256": "f8ef7349c730fca055c01255cdaa5c7b94848285d634b61996bbde5835437354",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/basal-omni-pico-Q8_0.gguf",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/tokenizer_config.json",
+      "size": 1127,
+      "sha256": "171ecbe7ddae98d11840698f7df2b8d5b4722139db0f0620d3bbf429bd656250",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/tokenizer_config.json",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/CALIBRATION.json",
+      "size": 5672,
+      "sha256": "37271567a03f819ea9529cf5930880ece5b6f03b858847cc3eeb6dc38792544b",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/CALIBRATION.json",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/tokenizer.json",
+      "size": 19989493,
+      "sha256": "b6d27c11283798debbfbcb1bd3bbdbcebac6c9b20d0be0c5b79231c97de97501",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/tokenizer.json",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/generation_config.json",
+      "size": 116,
+      "sha256": "62153eb6c69f2e1f426beaa8002b7186437e949c7588167085df14e10e9c0a73",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/generation_config.json",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/chat_template.jinja",
+      "size": 7755,
+      "sha256": "273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/chat_template.jinja",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/basal.json",
+      "size": 374,
+      "sha256": "baf2997becf0d08f589a479d8aef1a2654f09ae8687f0aafd7f1fc83b4e65cf8",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/basal.json",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "basal/CALIBRATION.gguf.json",
+      "size": 5680,
+      "sha256": "b7c9ad8f3270ae9411eeba9f5f4f18594be843aa812f9c061efb2a6cdec81cd1",
+      "source": "https://huggingface.co/Remek/basal-omni-pico-GGUF/resolve/f13a8cd528e446dc705131373371e0755e3ad1cf/CALIBRATION.gguf.json",
+      "revision": "f13a8cd528e446dc705131373371e0755e3ad1cf",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "laya/model.safetensors",
+      "size": 842609210,
+      "sha256": "891102d372688fc2a094dac56a384bc537b87c63f21f9f3dac0be2b7cbc8d86c",
+      "source": "https://huggingface.co/convaiinnovations/laya/resolve/fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1/model.safetensors",
+      "revision": "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "laya/rl_agent_config.json",
+      "size": 745,
+      "sha256": "ae287b56bbcf5f8c4f4541ae9dfd00c914c4c48b940b8398c3058af37ba92bbd",
+      "source": "https://huggingface.co/convaiinnovations/laya/resolve/fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1/rl_agent_config.json",
+      "revision": "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "laya/encoder/config.json",
+      "size": 2083,
+      "sha256": "bf3ab80598fdccf414855a2ce80f22859e4492d06ca8a62ddd1cfb63972f8979",
+      "source": "https://huggingface.co/convaiinnovations/laya/resolve/fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1/encoder/config.json",
+      "revision": "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "laya/tokenizer/tokenizer.json",
+      "size": 3583228,
+      "sha256": "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
+      "source": "https://huggingface.co/convaiinnovations/laya/resolve/fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1/tokenizer/tokenizer.json",
+      "revision": "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "laya/tokenizer/tokenizer_config.json",
+      "size": 308,
+      "sha256": "50044de60daaa73df97d262e15a40d4faf0160e7d742df64b377877a1320dd12",
+      "source": "https://huggingface.co/convaiinnovations/laya/resolve/fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1/tokenizer/tokenizer_config.json",
+      "revision": "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "laya/README.upstream.md",
+      "size": 28696,
+      "sha256": "d49bad24afec0a1e213157cabe9241232e9b6d2fdd33f0e34323fae4e9bf586d",
+      "source": "https://huggingface.co/convaiinnovations/laya/resolve/fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1/README.md",
+      "revision": "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "kev/Kev-0.8B-Q8_0.gguf",
+      "size": 812406304,
+      "sha256": "27278f34eb3273bceea4c053dc50dd61a5161da21a718c4aacdf8fd5830771d0",
+      "source": "https://huggingface.co/ggml-org/Kev-0.8B-GGUF/resolve/9231cb757e3320120077e42e52371971968f008d/Kev-0.8B-Q8_0.gguf",
+      "revision": "9231cb757e3320120077e42e52371971968f008d",
+      "license": "Apache-2.0"
+    },
+    {
+      "path": "kev/README.upstream.md",
+      "size": 597,
+      "sha256": "82697e54f371800881dce871458fda31c3e7722be0bf79bc3e78def46546b91c",
+      "source": "https://huggingface.co/ggml-org/Kev-0.8B-GGUF/resolve/9231cb757e3320120077e42e52371971968f008d/README.md",
+      "revision": "9231cb757e3320120077e42e52371971968f008d",
+      "license": "Apache-2.0"
+    }
+  ]
+}

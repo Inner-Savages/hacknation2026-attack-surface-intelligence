@@ -6,6 +6,7 @@
 //	scanner -f targets.txt -allow 10.0.0.0/16 -max-rate 300
 //	scanner schedule -window 22:00-05:00 -every 24h -checkpoint state.jsonl -out results -f targets.txt
 //	scanner diff old.json new.json
+//	scanner export -format csv scan.json
 package main
 
 import (
@@ -39,8 +40,14 @@ func main() {
 			return
 		}
 	}
+	if len(os.Args) > 1 && os.Args[1] == "export" {
+		runExport(os.Args[2:])
+		return
+	}
 	sf := addScanFlags(flag.CommandLine)
 	output := flag.String("o", "", "write the JSON result here (default or \"-\": stdout)")
+	doCVE := flag.Bool("cve", false, "look detected versions up in NVD and rank CVEs by EPSS (needs network; cached in -cve-cache)")
+	cveCache := flag.String("cve-cache", "var/cve-cache", "directory for the NVD/EPSS/KEV lookup cache")
 	flag.Parse()
 	cfg, targets := sf.config()
 
@@ -55,6 +62,12 @@ func main() {
 	if err != nil {
 		log.Printf("scan interrupted: %v (writing partial result)", err)
 	}
+	if *doCVE && ctx.Err() == nil {
+		start := time.Now()
+		enrichCVE(ctx, res, *cveCache)
+		log.Printf("CVE enrichment done in %v", time.Since(start).Round(time.Millisecond))
+	}
+
 	if *output == "" || *output == "-" {
 		err = writeResult(os.Stdout, res)
 	} else {
