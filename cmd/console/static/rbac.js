@@ -24,6 +24,8 @@ async function rbacInit() {
   if (tab) tab.hidden = !can('roles:manage');
   const tl = document.querySelector('[data-nav="tls"]');
   if (tl) tl.hidden = !can('tls:read');
+  const as = document.querySelector('[data-nav="zasoby"]');
+  if (as) as.hidden = !can('assets:read');
   const st = document.querySelector('[data-nav="ustawienia"]');
   if (st) st.hidden = !can('config:read');
   const nm = document.getElementById('userName');

@@ -62,6 +62,16 @@ type HostRecord struct {
 	SilentSince *time.Time              `json:"silent_since,omitempty"`
 	Services    map[string]*HostService `json:"services,omitempty"`
 
+	// MAC is the source address the sensor saw on the wire (host_new
+	// carries it); the asset classifier derives vendor and device class
+	// from it together with ports, banners and TLS subjects.
+	MAC             string     `json:"mac,omitempty"`
+	Class           string     `json:"class,omitempty"`            // drukarka, kamera, iot, …
+	ClassVendor     string     `json:"class_vendor,omitempty"`     // OUI vendor match
+	ClassConfidence float64    `json:"class_confidence,omitempty"` // 0..1 evidence weight
+	ClassReasons    []string   `json:"class_reasons,omitempty"`    // auditable evidence list
+	ClassifiedAt    *time.Time `json:"classified_at,omitempty"`
+
 	// Baseline is the ground truth established by the first control scan:
 	// port key -> banner. Later scans diff against it; a scan's findings
 	// become the new baseline, so every drift escalates exactly once.
@@ -208,6 +218,11 @@ func (r *hostRegistry) Observe(l sensorLog, sensorID string, now time.Time) {
 	}
 	h.LastSeen = now
 	h.LastType = l.Type
+	// host_new ships the observed source MAC; keep the freshest value so the
+	// asset classifier always works on current evidence.
+	if l.Type == "host_new" && l.New != "" {
+		h.MAC = l.New
+	}
 	switch l.Type {
 	case "host_silent":
 		if h.SilentSince == nil {

@@ -38,6 +38,8 @@ const (
 
 	PermTLSRead = "tls:read" // TLS certificate inventory and findings
 	PermTLSRun  = "tls:run"  // trigger an on-demand TLS policy pass
+
+	PermAssetsRead = "assets:read" // passive device classification (asset inventory)
 )
 
 // permCatalog lists every permission with a description for the role editor.
@@ -62,6 +64,7 @@ var permCatalog = []struct{ Perm, Desc string }{
 	{PermOverridesWrite, "Edycja nadpisań użytkownika (tytuł, tagi, notatka, status)"},
 	{PermTLSRead, "Odczyt monitoringu certyfikatów TLS"},
 	{PermTLSRun, "Uruchamianie kontroli TLS na żądanie"},
+	{PermAssetsRead, "Odczyt inwentarza zasobów (klasyfikacja urządzeń)"},
 }
 
 func validPerm(p string) bool {
@@ -85,7 +88,7 @@ type Role struct {
 const defaultRole = "analyst" // new self-registered accounts keep today's working rights
 
 func builtinRoles() []*Role {
-	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead, PermTargetsRead, PermTLSRead}
+	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead, PermTargetsRead, PermTLSRead, PermAssetsRead}
 	analyst := append(append([]string{}, read...), PermCasesUpdate, PermOverridesWrite)
 	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun, PermExposureRun, PermTargetsWrite, PermTLSRun)
 	all := make([]string, 0, len(permCatalog))
@@ -289,6 +292,8 @@ var routePerms = map[string]string{
 	"GET /api/map":                   PermCasesRead,
 	"GET /api/exposure":              PermSensorsRead,
 	"POST /api/exposure/run":         PermExposureRun,
+	"GET /api/assets":                PermAssetsRead,
+	"GET /api/assets/{ip}":           PermAssetsRead,
 	"GET /api/tls":                   PermTLSRead,
 	"POST /api/tls/run":              PermTLSRun,
 	"GET /api/groundtruth":           PermSensorsRead,

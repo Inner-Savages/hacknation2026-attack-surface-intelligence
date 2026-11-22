@@ -466,6 +466,45 @@ the console already holds, no external calls). The rules themselves live
 in `internal/tlspolicy`, so the scanner can evaluate the same policy over
 its own probe results.
 
+### Passive asset inventory (CMDB-from-traffic)
+
+The sensor already sees everything a device classifier needs: the source
+MAC of every frame (the OUI half names the vendor), the ports a host
+serves, banners captured by the control scans and the subjects of its TLS
+certificates. The console folds those signals through `internal/classify`
+into a device-class label — **drukarka, kamera, iot, serwer, stacja,
+sieciowe, telefon** — and keeps it on the host record, so the inventory
+stays alive as long as the traffic does. No active probing is involved.
+
+Signals vote with weights; the strongest total wins, and every label keeps
+its auditable evidence list:
+
+- **OUI of the MAC address** (strongest, 0.8): a curated table of vendors
+  common in office and server-room fleets — Hikvision/Dahua/Axis → kamera,
+  HP/Canon/Epson/Brother/Xerox → drukarka, Espressif/Tuya/Raspberry
+  Pi/Sonos/Hue/Xiaomi → iot, Ubiquiti/TP-Link/MikroTik/Netgear/Cisco →
+  sieciowe, VMware/Supermicro → serwer, Grandstream/Yealink → telefon,
+  Apple/Intel/Dell/Lenovo → stacja. Locally administered MACs (Docker's
+  `02:42:…`) carry no vendor and never match.
+- **Ports** (mid-strength): 9100/515/631 → drukarka, 554/8554 (RTSP) →
+  kamera, 1883/5683 (MQTT/CoAP) → iot, 3306/5432/6379/445 → serwer,
+  3389/5900 → stacja, 5060/5061 (SIP) → telefon.
+- **Banners and TLS subjects**: `jetdirect`, `hikvision`, `onvif`,
+  `routeros`, `openwrt`, `shelly`, `grandstream`, …
+
+Some classes are inherently suspicious when they appear unannounced — a
+**new camera in the server room** is either an incident or shadow IT. The
+first classification of a host as kamera (score 0.8), drukarka, telefon or
+iot therefore escalates as an ordinary case (type `asset_new`, one per
+host via a stable event ID), which the rule engine and the AI operator
+triage like any other alert. Reclassifications (e.g. a host first seen as
+drukarka by port, later unmasked as kamera by its OUI) update the record
+and are noted on the map's topology timeline (`asset_classified`).
+
+The **Zasoby** tab is the living inventory: per-class counters, a filterable
+host table and the evidence behind every label. `GET /api/assets` serves
+the listing (with `?class=` filter), `GET /api/assets/{ip}` one host's
+full record.
 
 On first run the engine seeds a starter list so it is useful out of the
 box. It ports the heuristics the edge bakes into its feature extractor
