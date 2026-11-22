@@ -57,7 +57,6 @@ func (a *AIClient) decide(ctx context.Context, envelope json.RawMessage, logs []
 			},
 			{Role: "user", Content: sb.String()},
 		},
-		"temperature": 0.1,
 	})
 	raw, err := a.chat(ctx, reqBody)
 	if err != nil {

@@ -94,7 +94,8 @@ func (a *AIClient) analyze(ctx context.Context, envelope json.RawMessage, logs [
 			},
 			{Role: "user", Content: sb.String()},
 		},
-		"temperature": 0.2,
+		// No explicit temperature: several current models accept only the
+		// provider default and reject the parameter outright.
 	})
 	return a.chat(ctx, reqBody)
 }

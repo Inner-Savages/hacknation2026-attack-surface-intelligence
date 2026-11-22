@@ -560,7 +560,7 @@ async function runAnalysis(id) {
   try {
     await post(`/api/alerts/${id}/analysis`, {actor: ACTOR});
   } catch (e) {
-    alert('Analiza AI nie powiodła się: ' + e.message);
+    alert(e.message);
   }
   render();
 }
