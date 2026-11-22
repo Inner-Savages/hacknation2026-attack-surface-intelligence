@@ -195,3 +195,28 @@ func TestTLSMonitorStatePersists(t *testing.T) {
 		t.Fatalf("issues not persisted: %+v", m2.state.Issues)
 	}
 }
+
+// RBAC: TLS findings are readable by every role, but only roles holding
+// tls:run (editor, admin) may trigger a pass; viewer and analyst get 403.
+func TestTLSEndpointsRBAC(t *testing.T) {
+	s, _, adminTok := testServer(t)
+	h := s.routes()
+	viewer := userWithRole(t, s, "vera", "viewer")
+	analyst := userWithRole(t, s, "anna", "analyst")
+	editor := userWithRole(t, s, "edek", "editor")
+	for _, tok := range []string{viewer, analyst, editor, adminTok} {
+		if w := call(t, h, "GET", "/api/tls", "", tok); w.Code != 200 {
+			t.Errorf("GET /api/tls = %d, want 200", w.Code)
+		}
+	}
+	for name, tok := range map[string]string{"viewer": viewer, "analyst": analyst} {
+		if w := call(t, h, "POST", "/api/tls/run", `{}`, tok); w.Code != 403 {
+			t.Errorf("%s POST /api/tls/run = %d, want 403", name, w.Code)
+		}
+	}
+	for name, tok := range map[string]string{"editor": editor, "admin": adminTok} {
+		if w := call(t, h, "POST", "/api/tls/run", `{}`, tok); w.Code == 403 || w.Code == 401 {
+			t.Errorf("%s POST /api/tls/run = %d, want allowed", name, w.Code)
+		}
+	}
+}

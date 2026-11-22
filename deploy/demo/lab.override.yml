@@ -1,0 +1,57 @@
+# Lab stack = organizers' AGH custom-network template + our traffic/sensor/trigger
+# overlay + this file. It is its own compose project; run from the repo root:
+#
+#   docker compose -p demo-lab \
+#     -f lab/agh/upstream/docker-compose-custom-network.yml \
+#     -f lab/agh/traffic-custom-network.yml \
+#     -f deploy/demo/lab.override.yml up -d
+#
+# What it changes versus the plain overlay:
+#   - the lab networks get fixed subnets, so the trigger allowlist is exactly
+#     the lab (the trigger refuses to scan anything outside it);
+#   - the sensor ignores the demo bridge (br-demo = console + tunnel);
+#   - the sensor feeds BOTH the trigger and the console (POST /logs through the
+#     loopback relay, same bearer token); the trigger stays on 127.0.0.1;
+#   - the trigger ships every finding (targeted scan result) to the console
+#     (POST /findings through the same relay), where it correlates with the
+#     passive case or opens a new one, labelled WERYFIKACJA in the live feed.
+# Needs ASI_CENTRAL_TOKEN in the environment (e.g. `set -a; . deploy/demo/.env`).
+services:
+  sensor:
+    command:
+      - -i
+      - br-*,!br-demo
+      - -learn
+      - ${SENSOR_LEARN:-30s}
+      - -silent-after
+      - ${SENSOR_SILENT_AFTER:-60s}
+      - -name
+      - agh-lab
+      - -webhook
+      - http://127.0.0.1:8099/events,http://127.0.0.1:18081/logs
+    environment:
+      SOTW_WEBHOOK_TOKEN: ${ASI_CENTRAL_TOKEN:?set ASI_CENTRAL_TOKEN}
+      SOTW_EXCLUDE_NET: ${DEMO_SUBNET:-172.29.0.0/24}
+  trigger:
+    command:
+      - -allow
+      - ${LAB_FRONTEND_SUBNET:-172.29.10.0/24},${LAB_BACKEND_SUBNET:-172.29.11.0/24}
+      - -listen
+      - 127.0.0.1:8099
+      - -findings-url
+      - http://127.0.0.1:18081/findings
+      - -findings-token
+      - ${ASI_CENTRAL_TOKEN:?set ASI_CENTRAL_TOKEN}
+    environment:
+      SOTW_WEBHOOK_TOKEN: ${ASI_CENTRAL_TOKEN:?set ASI_CENTRAL_TOKEN}
+      SOTW_EXCLUDE_NET: ${DEMO_SUBNET:-172.29.0.0/24}
+
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: ${LAB_FRONTEND_SUBNET:-172.29.10.0/24}
+  backend:
+    ipam:
+      config:
+        - subnet: ${LAB_BACKEND_SUBNET:-172.29.11.0/24}

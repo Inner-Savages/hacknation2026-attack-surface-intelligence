@@ -7,8 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
+	"time"
 )
 
 func TestTargetsExpandDedupAndOrder(t *testing.T) {
@@ -58,15 +57,6 @@ func TestTargetsAllowList(t *testing.T) {
 	}
 }
 
-func TestChunks(t *testing.T) {
-	var tg Targets
-	_ = tg.Add("10.0.0.0/29") // 8 addresses
-	c := tg.Chunks(3)
-	if len(c) != 3 || len(c[0]) != 3 || len(c[2]) != 2 {
-		t.Fatalf("chunks: %v", c)
-	}
-}
-
 func TestOptionsArgsAndValidation(t *testing.T) {
 	o := Options{Ports: "22,80,8000-8100", MaxRate: 300, SkipDiscovery: true}
 	got := strings.Join(o.Args(), " ")
@@ -84,7 +74,7 @@ func TestOptionsArgsAndValidation(t *testing.T) {
 	if got := strings.Join(Options{SYN: true}.Args(), " "); !strings.HasPrefix(got, "-sS") {
 		t.Errorf("SYN: %q", got)
 	}
-	for _, bad := range []Options{{Ports: "80 --script vuln"}, {Ports: "80;id"}, {VersionIntensity: 10}, {MaxRate: -1}} {
+	for _, bad := range []Options{{Ports: "80 --script vuln"}, {Ports: "80;id"}, {VersionIntensity: 10}, {MaxRate: -1}, {VersionMode: "turbo"}, {VersionWait: time.Millisecond}} {
 		if bad.Validate() == nil {
 			t.Errorf("%+v: expected validation error", bad)
 		}
@@ -130,7 +120,7 @@ func TestScannerChunksInParallelAndRecordsFailures(t *testing.T) {
 		Options:   Options{Binary: "testdata/fake-nmap.sh"},
 		ChunkSize: 3,
 		Parallel:  2,
-		Progress:  func(done, total int, _ result.Chunk) { progress++ },
+		Progress:  func(Progress) { progress++ },
 	}
 	res, err := s.Scan(context.Background(), &tg)
 	if err != nil {
@@ -150,5 +140,20 @@ func TestScannerChunksInParallelAndRecordsFailures(t *testing.T) {
 	}
 	if res.Chunks[0].HostsUp != 3 || res.Chunks[0].Duration <= 0 {
 		t.Fatalf("chunk stats: %+v", res.Chunks[0])
+	}
+}
+
+func TestParseXMLExtraPortsTellLiveFromAbsent(t *testing.T) {
+	xml := func(addr, state string) []byte {
+		return []byte(`<nmaprun><host><status state="up" reason="user-set"/><address addr="` + addr + `" addrtype="ipv4"/>` +
+			`<ports><extraports state="` + state + `" count="100"/></ports></host></nmaprun>`)
+	}
+	live, _ := ParseXML(xml("172.28.0.100", "closed"))
+	gone, _ := ParseXML(xml("172.28.0.250", "filtered"))
+	if len(live[0].ExtraPorts) != 1 || live[0].ExtraPorts[0].Count != 100 || !live[0].Responded() {
+		t.Fatalf("live: %+v", live[0])
+	}
+	if gone[0].Responded() {
+		t.Fatalf("absent host must not count as responding: %+v", gone[0])
 	}
 }

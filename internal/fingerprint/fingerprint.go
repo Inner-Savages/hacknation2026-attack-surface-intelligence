@@ -34,9 +34,9 @@ var builtin embed.FS
 // Signature describes one technology.
 type Signature struct {
 	Name          string    `yaml:"name"`
-	Category      string    `yaml:"category"`
-	Tags          []string  `yaml:"tags"`
-	MinConfidence float64   `yaml:"min_confidence"` // default 0.5
+	Category      string    `yaml:"category,omitempty"`
+	Tags          []string  `yaml:"tags,omitempty"`
+	MinConfidence float64   `yaml:"min_confidence,omitempty"` // default 0.5
 	Match         []Matcher `yaml:"match"`
 }
 
@@ -45,19 +45,19 @@ type Signature struct {
 // path, the other fields (status, title, body, header) are conditions on
 // the fetched page.
 type Matcher struct {
-	Header      string  `yaml:"header"`  // header name (lower-case); Value is an optional regex on its value
-	Value       string  `yaml:"value"`   // regex
-	Cookie      string  `yaml:"cookie"`  // regex on cookie names
-	Title       string  `yaml:"title"`   // regex
-	Body        string  `yaml:"body"`    // regex
-	Favicon     *int32  `yaml:"favicon"` // Shodan mmh3 hash
-	NmapProduct string  `yaml:"nmap_product"`
-	NmapService string  `yaml:"nmap_service"`
-	Path        string  `yaml:"path"`   // e.g. /wp-login.php
-	Status      int     `yaml:"status"` // for path; default 200
-	Version     int     `yaml:"version"`
-	NmapVersion bool    `yaml:"nmap_version"` // take the version nmap reported
-	Weight      float64 `yaml:"weight"`       // default 0.6
+	Header      string  `yaml:"header,omitempty"`  // header name (lower-case); Value is an optional regex on its value
+	Value       string  `yaml:"value,omitempty"`   // regex
+	Cookie      string  `yaml:"cookie,omitempty"`  // regex on cookie names
+	Title       string  `yaml:"title,omitempty"`   // regex
+	Body        string  `yaml:"body,omitempty"`    // regex
+	Favicon     *int32  `yaml:"favicon,omitempty"` // Shodan mmh3 hash
+	NmapProduct string  `yaml:"nmap_product,omitempty"`
+	NmapService string  `yaml:"nmap_service,omitempty"`
+	Path        string  `yaml:"path,omitempty"`   // e.g. /wp-login.php
+	Status      int     `yaml:"status,omitempty"` // for path; default 200
+	Version     int     `yaml:"version,omitempty"`
+	NmapVersion bool    `yaml:"nmap_version,omitempty"` // take the version nmap reported
+	Weight      float64 `yaml:"weight,omitempty"`       // default 0.6
 
 	value, cookie, title, body, product, service *regexp.Regexp
 }

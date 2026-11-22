@@ -79,8 +79,21 @@ type server struct {
 	settings *settings
 	rules    *ruleStore
 	gt       *groundTruth
+	inv      *inventory
 	exposure *exposureCheck
 	tlsMon   *tlsMonitor
+
+	roles *roleStore
+	audit *auditLog
+
+	// registrationClosed turns off self-service sign-up (ASI_ALLOW_REGISTRATION=false).
+	// The very first account can still be created while no user exists.
+	registrationClosed bool
+
+	// triggerURL, when set (ASI_TRIGGER_URL), turns the "scan" action into a
+	// real request for active verification by the trigger.
+	triggerURL   string
+	triggerToken string
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -155,11 +168,14 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
+	s.registerInventoryRoutes(mux)
 	// Machine intake: bearer token, unchanged contract.
 	mux.HandleFunc("POST /events", s.intake)
 	mux.HandleFunc("POST /logs", s.intakeLogs)
+	mux.HandleFunc("POST /findings", s.intakeFindings)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	return mux
+	s.registerRBACRoutes(mux)
+	return s.rbac(mux)
 }
 
 // needAuth requires a logged-in operator. Before the first account exists it
@@ -180,10 +196,7 @@ func (s *server) needAuth(h http.Handler) http.Handler {
 
 func (s *server) needAdmin(h http.Handler) http.Handler {
 	return s.needAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if sess := s.auth.who(r); sess == nil || !sess.Admin {
-			http.Error(w, "admin required", 403)
-			return
-		}
+		// Permission checks live in the RBAC wrapper (rbac.go).
 		h.ServeHTTP(w, r)
 	}))
 }
@@ -191,6 +204,10 @@ func (s *server) needAdmin(h http.Handler) http.Handler {
 // --- accounts --------------------------------------------------------------
 
 func (s *server) register(w http.ResponseWriter, r *http.Request) {
+	if s.registrationClosed && s.auth.hasUsers() {
+		http.Error(w, "registration is disabled", 403)
+		return
+	}
 	m := decodeBody(w, r)
 	u, err := s.auth.register(m["login"], m["name"], m["password"])
 	if err != nil {
@@ -226,10 +243,10 @@ func (s *server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 // account — the UI routes to the setup, login or dashboard screen on it.
 func (s *server) me(w http.ResponseWriter, r *http.Request) {
 	if sess := s.auth.who(r); sess != nil {
-		writeJSON(w, 200, map[string]interface{}{"authenticated": true, "login": sess.Login, "name": sess.Name, "admin": sess.Admin, "has_users": true})
+		writeJSON(w, 200, map[string]interface{}{"authenticated": true, "login": sess.Login, "name": sess.Name, "admin": sess.Admin, "has_users": true, "registration_open": !s.registrationClosed})
 		return
 	}
-	writeJSON(w, 200, map[string]interface{}{"authenticated": false, "has_users": s.auth.hasUsers()})
+	writeJSON(w, 200, map[string]interface{}{"authenticated": false, "has_users": s.auth.hasUsers(), "registration_open": !s.registrationClosed || !s.auth.hasUsers()})
 }
 
 // users lists operator accounts for the admin's settings panel.
@@ -1068,6 +1085,13 @@ func (s *server) action(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
+	}
+	// The scan action requests active verification from the trigger; the
+	// finding correlates back onto this case through POST /findings.
+	if act == "scan" {
+		if c, ok := s.store.Get(r.PathValue("id")); ok {
+			s.requestVerification(c)
+		}
 	}
 	writeJSON(w, 200, map[string]interface{}{"state": "executed", "demo": s.demoData})
 }

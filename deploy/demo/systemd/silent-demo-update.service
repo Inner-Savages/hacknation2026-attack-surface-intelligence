@@ -1,0 +1,14 @@
+[Unit]
+Description=Pull newer silent-demo images and recreate changed containers
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Adjust if the repo checkout lives elsewhere (README step "Install").
+WorkingDirectory=/opt/silent-demo
+ExecStart=/usr/bin/docker compose pull --quiet
+# up -d only recreates services whose image changed.
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStart=/usr/bin/docker image prune -f

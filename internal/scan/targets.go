@@ -131,14 +131,18 @@ outer:
 	return nil
 }
 
-// Chunks splits the targets into groups of at most size.
-func (t *Targets) Chunks(size int) [][]string {
-	if size <= 0 {
-		size = len(t.items)
+// ParseAllow parses a comma-separated list of CIDRs for CheckAllowed.
+func ParseAllow(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, f := range strings.Split(s, ",") {
+		if f = strings.TrimSpace(f); f == "" {
+			continue
+		}
+		p, err := netip.ParsePrefix(f)
+		if err != nil {
+			return nil, fmt.Errorf("allow list: %w", err)
+		}
+		out = append(out, p.Masked())
 	}
-	var out [][]string
-	for i := 0; i < len(t.items); i += size {
-		out = append(out, t.items[i:min(i+size, len(t.items))])
-	}
-	return out
+	return out, nil
 }

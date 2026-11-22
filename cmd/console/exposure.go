@@ -86,7 +86,7 @@ func newExposureCheck(dir string, st *Store, feed *LiveFeed, cfg *settings, gt *
 		settings: cfg, store: st, feed: feed, gt: gt,
 		path: filepath.Join(dir, "exposure.json"),
 	}
-	b, err := os.ReadFile(e.path)
+	b, err := rest.ReadFile(e.path)
 	if err == nil {
 		_ = json.Unmarshal(b, &e.state)
 	} else if !os.IsNotExist(err) {
@@ -103,11 +103,7 @@ func (e *exposureCheck) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := e.path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, e.path)
+	return rest.WriteFile(e.path, b, 0o600)
 }
 
 // exposureConfig resolves the effective configuration.
