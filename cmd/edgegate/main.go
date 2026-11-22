@@ -19,9 +19,28 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: edgegate {gate|check-models|verify-models|replay|receive} [flags]")
+		return fmt.Errorf("usage: edgegate {serve|gate|check-models|verify-models|replay|receive} [flags]")
 	}
 	switch args[0] {
+	case "serve":
+		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+		o := serveOptions{}
+		fs.StringVar(&o.Listen, "listen", "127.0.0.1:8098", "address for POST /events (sensor webhook) and GET /healthz")
+		fs.StringVar(&o.TriggerURL, "trigger-url", "http://127.0.0.1:8099/events", "where forwarded events go (the trigger's /events)")
+		fs.StringVar(&o.Token, "token", os.Getenv("SOTW_WEBHOOK_TOKEN"), "bearer token required from senders and sent to the trigger (default $SOTW_WEBHOOK_TOKEN)")
+		fs.StringVar(&o.Policy, "policy", "deploy/cascade50/policy.json", "calibrated policy bundle")
+		fs.StringVar(&o.Sensor, "sensor-id", "sensor", "sensor id for events without a \"sensor\" field")
+		fs.StringVar(&o.Outbox, "outbox-dir", "var/cascade50/serve-outbox", "durable events waiting for the trigger")
+		fs.DurationVar(&o.Timeout, "model-timeout", 6*time.Second, "timeout per parallel model request")
+		fs.IntVar(&o.Queue, "queue", 4096, "events accepted but not yet scored; beyond this senders get 503 and retry")
+		basal := fs.String("basal-url", "http://127.0.0.1:18000/v1/systemone", "Basal endpoint")
+		laya := fs.String("laya-url", "http://127.0.0.1:18001/v1/systemone", "Laya endpoint")
+		kev := fs.String("kev-url", "http://127.0.0.1:18008/v1/systemone", "Kev endpoint")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		o.URLs = map[string]string{"basal": *basal, "laya": *laya, "kev": *kev}
+		return serve(o)
 	case "gate", "check-models":
 		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		o := cascadeGateOptions{URLs: map[string]string{}}

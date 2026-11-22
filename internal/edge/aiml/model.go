@@ -20,6 +20,7 @@ type Event struct {
 	New    string          `json:"new,omitempty"`
 	Banner json.RawMessage `json:"banner,omitempty"`
 	Source string          `json:"source,omitempty"`
+	Sensor string          `json:"sensor,omitempty"` // set by sensors run with -name; not a model feature
 }
 
 var EventTypes = []string{"host_new", "host_silent", "host_back", "service_new", "service_changed", "service_closed", "service_silent", "service_back"}

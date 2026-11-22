@@ -11,13 +11,17 @@ import (
 )
 
 func post(client *http.Client, url string, body []byte) error {
+	return postWithToken(client, url, body, os.Getenv("ASI_CENTRAL_TOKEN"))
+}
+
+func postWithToken(client *http.Client, url string, body []byte, token string) error {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if tok := os.Getenv("ASI_CENTRAL_TOKEN"); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
