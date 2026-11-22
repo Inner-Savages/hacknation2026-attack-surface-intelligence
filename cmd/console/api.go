@@ -79,6 +79,7 @@ type server struct {
 	settings *settings
 	rules    *ruleStore
 	gt       *groundTruth
+	inv      *inventory
 	exposure *exposureCheck
 
 	roles *roleStore
@@ -152,6 +153,7 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
+	s.registerInventoryRoutes(mux)
 	// Machine intake: bearer token, unchanged contract.
 	mux.HandleFunc("POST /events", s.intake)
 	mux.HandleFunc("POST /logs", s.intakeLogs)

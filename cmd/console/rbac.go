@@ -31,6 +31,10 @@ const (
 	PermUsersManage = "users:manage"
 	PermRolesManage = "roles:manage"
 	PermAuditRead   = "audit:read"
+
+	PermTargetsRead    = "targets:read"    // inventory, targets, overrides: read
+	PermTargetsWrite   = "targets:write"   // add/delete targets, import files and scans
+	PermOverridesWrite = "overrides:write" // edit/restore user overrides
 )
 
 // permCatalog lists every permission with a description for the role editor.
@@ -50,6 +54,9 @@ var permCatalog = []struct{ Perm, Desc string }{
 	{PermUsersManage, "Zarządzanie kontami operatorów"},
 	{PermRolesManage, "Tworzenie i edycja ról"},
 	{PermAuditRead, "Odczyt dziennika audytu zmian"},
+	{PermTargetsRead, "Odczyt celów, inwentarza i nadpisań"},
+	{PermTargetsWrite, "Dodawanie i usuwanie celów, import list celów i wyników skanów"},
+	{PermOverridesWrite, "Edycja nadpisań użytkownika (tytuł, tagi, notatka, status)"},
 }
 
 func validPerm(p string) bool {
@@ -73,9 +80,9 @@ type Role struct {
 const defaultRole = "analyst" // new self-registered accounts keep today's working rights
 
 func builtinRoles() []*Role {
-	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead}
-	analyst := append(append([]string{}, read...), PermCasesUpdate)
-	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun, PermExposureRun)
+	read := []string{PermCasesRead, PermSensorsRead, PermLogsRead, PermRulesRead, PermTargetsRead}
+	analyst := append(append([]string{}, read...), PermCasesUpdate, PermOverridesWrite)
+	editor := append(append([]string{}, analyst...), PermCasesCreate, PermCasesDelete, PermRulesWrite, PermScanRun, PermExposureRun, PermTargetsWrite)
 	all := make([]string, 0, len(permCatalog))
 	for _, c := range permCatalog {
 		all = append(all, c.Perm)
@@ -289,6 +296,18 @@ var routePerms = map[string]string{
 	"PUT /api/roles/{name}":          PermRolesManage,
 	"DELETE /api/roles/{name}":       PermRolesManage,
 	"GET /api/audit":                 PermAuditRead,
+	"GET /api/inventory":             PermTargetsRead,
+	"GET /api/inventory/diff":        PermTargetsRead,
+	"GET /api/imports":               PermTargetsRead,
+	"GET /api/targets":               PermTargetsRead,
+	"GET /api/targets.txt":           PermTargetsRead,
+	"POST /api/targets":              PermTargetsWrite,
+	"DELETE /api/targets/{value}":    PermTargetsWrite,
+	"POST /api/import":               PermTargetsWrite,
+	"GET /api/overrides":             PermTargetsRead,
+	"GET /api/overrides/{key}":       PermTargetsRead,
+	"PUT /api/overrides/{key}":       PermOverridesWrite,
+	"DELETE /api/overrides/{key}":    PermOverridesWrite,
 	"GET /api/rbac/me":               "", // any logged-in operator
 }
 

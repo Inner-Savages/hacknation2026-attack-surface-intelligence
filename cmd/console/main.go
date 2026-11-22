@@ -75,6 +75,9 @@ func main() {
 		log.Fatalf("open host registry: %v", err)
 	}
 	srv.gt = gt
+	if srv.inv, err = openInventory(*dataDir); err != nil {
+		log.Fatalf("open inventory: %v", err)
+	}
 	// Inside/outside correlation: what Shodan/Censys see of the public IP,
 	// diffed against the passive registry (shadow IT, accidental exposure).
 	expo, err := newExposureCheck(*dataDir, store, feed, cfg, gt)
