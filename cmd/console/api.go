@@ -142,6 +142,7 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/config", s.needAdmin(http.HandlerFunc(s.setConfig)))
 	mux.Handle("GET /api/groundtruth", s.needAuth(http.HandlerFunc(s.groundTruthStatus)))
 	mux.Handle("POST /api/groundtruth/run", s.needAdmin(http.HandlerFunc(s.groundTruthRun)))
+	mux.Handle("GET /api/map", s.needAuth(http.HandlerFunc(s.attackMap)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
@@ -394,15 +395,46 @@ func (s *server) intakeLogs(w http.ResponseWriter, r *http.Request) {
 		s.feed.Append("sensor", sensor, l.line(), raws[i])
 	}
 	// The passive record feeds ground truth: every log line updates what
-	// the control scans will later verify.
+	// the control scans will later verify. The timeline keeps the sensor's
+	// own timestamps, so replaying the map shows when things really
+	// happened, not when the console received them.
 	if s.gt != nil {
 		now := time.Now()
 		for _, l := range logs {
-			s.gt.registry.Observe(l, sensor, now)
+			at := now
+			if t, err := time.Parse(time.RFC3339Nano, l.Time); err == nil {
+				at = t
+			}
+			s.gt.registry.Observe(l, sensor, at)
 		}
 	}
 	s.store.TouchSensor(sensor)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// attackMap serves the attack-surface map: the current per-host state from
+// the passive registry (the graph) plus the topology timeline (how the
+// network drifted). Query params from/to (RFC3339) bound the timeline.
+func (s *server) attackMap(w http.ResponseWriter, r *http.Request) {
+	if s.gt == nil {
+		writeJSON(w, 200, map[string]interface{}{"hosts": []interface{}{}, "events": []interface{}{}})
+		return
+	}
+	var from, to time.Time
+	if v := r.URL.Query().Get("from"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			from = t
+		}
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			to = t
+		}
+	}
+	writeJSON(w, 200, map[string]interface{}{
+		"hosts":  s.gt.registry.hostsSnapshot(),
+		"events": s.gt.registry.timeline(from, to),
+	})
 }
 
 // groundTruthStatus reports the control-scan policy, the registry size and
