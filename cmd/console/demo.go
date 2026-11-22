@@ -106,10 +106,22 @@ func relightDemo(store *Store) {
 // few seconds, in the exact NDJSON shape the passive sensor ships. It runs
 // only while the demo feed is enabled — switching the console to live mode
 // (the demo toggle in settings) stops it immediately.
+// demoMACs are synthetic source MACs with recognisable OUI prefixes, so
+// replayed demo log lines classify into plausible device classes (camera,
+// printer, IoT, network gear, workstation, server).
+var demoMACs = []string{
+	"44:19:b6:20:11:5a", // Hikvision
+	"00:11:0a:33:44:55", // Hewlett-Packard
+	"b8:27:eb:66:77:88", // Raspberry Pi
+	"24:5a:4c:99:aa:bb", // Ubiquiti
+	"3c:22:fb:cc:dd:ee", // Apple
+	"00:0c:29:12:34:56", // VMware
+}
+
 func startDemoLogs(feed *LiveFeed, store *Store, active func() bool) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	types := []string{"service_silent", "host_silent", "host_new", "service_new", "service_changed", "host_back", "service_back", "host_silent", "service_silent"}
-	ports := []int{22, 80, 443, 445, 3389, 5900, 8080}
+	ports := []int{22, 80, 443, 445, 3389, 5900, 8080, 554, 9100, 1883}
 	go func() {
 		for range time.Tick(2 * time.Second) {
 			if !active() {
@@ -136,6 +148,9 @@ func startDemoLogs(feed *LiveFeed, store *Store, active func() bool) {
 			}
 			if strings.HasPrefix(typ, "service") {
 				l.Port, l.Proto = ports[rng.Intn(len(ports))], "tcp"
+			}
+			if typ == "host_new" {
+				l.New = demoMACs[rng.Intn(len(demoMACs))]
 			}
 			raw, _ := json.Marshal(l)
 			feed.Append("sensor", sen.ID, l.line(), raw)

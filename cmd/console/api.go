@@ -149,6 +149,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/exposure/run", s.needAdmin(http.HandlerFunc(s.exposureRun)))
 	mux.Handle("GET /api/tls", s.needAuth(http.HandlerFunc(s.tlsStatus)))
 	mux.Handle("POST /api/tls/run", s.needAdmin(http.HandlerFunc(s.tlsRun)))
+	mux.Handle("GET /api/assets", s.needAuth(http.HandlerFunc(s.assets)))
+	mux.Handle("GET /api/assets/{ip}", s.needAuth(http.HandlerFunc(s.assetDetail)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
@@ -412,6 +414,12 @@ func (s *server) intakeLogs(w http.ResponseWriter, r *http.Request) {
 				at = t
 			}
 			s.gt.registry.Observe(l, sensor, at)
+			// Fresh host or service evidence moves the device-class label
+			// (asset inventory); a first alert-worthy classification opens
+			// a case.
+			if l.Type == "host_new" || l.Type == "service_new" {
+				s.updateAssetClass(l.IP)
+			}
 		}
 	}
 	s.store.TouchSensor(sensor)
