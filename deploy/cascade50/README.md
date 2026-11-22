@@ -193,6 +193,46 @@ This gate does not automatically launch active scans.
 - `host_silent` describes lack of observed traffic; it does not establish that a
   host is inactive or compromised.
 
+## Operator console for the escalation fleet
+
+`cmd/console` is the human verification layer above the inbox: a durable case
+store plus a web UI where an operator triages escalations from the whole
+sensor fleet. It accepts the same delivery contract as the bundled receiver
+(`POST /events`, bearer token, `202` after durable write, deduplication by
+`event_id`), so the gate can deliver to it directly.
+
+```sh
+make console-up                 # demo fleet of 137 sensors on 127.0.0.1:18081
+# or point a real gate at it:
+./bin/edgegate gate -sensor-id site-a ... -central-url http://127.0.0.1:18081/events
+```
+
+The console is designed for **hundreds of edge sensors**: a fleet view with
+online/offline health, per-sensor alert counts and last contact, plus search
+and pagination; the alerts view filters by sensor, status, event type and
+free text. Sensor liveness comes from incoming escalations (a sensor silent
+longer than `-offline-ttl` is marked offline); the demo mode simulates
+heartbeats so the fleet stays realistically mixed.
+
+The operator workflow mirrors the escalation envelope:
+
+- **Verification**: set a status (do weryfikacji / potwierdzony / fałszywy
+  alarm / zamknięty), assign an owner, add case notes; every change lands in
+  an append-only audit log and in the case history.
+- **Evidence**: the full `cascadeEnvelope` — event, 28 features, per-model
+  scores with latencies, model errors, baseline anomaly, policy digest. The
+  UI states plainly that scores are a verification hint, not a verdict.
+- **Actions**: reinforce observation, order an active scan, rerun model
+  analysis, and isolate the host. Isolation is **two-step and always
+  human-confirmed**; in demo mode actions are recorded in the audit trail but
+  never touch traffic, exactly as the banner says.
+
+The UI ships light and dark themes (light is the default) and is embedded in
+the binary — no build step, no JavaScript dependencies. Run it in Docker as
+the `console` service (port `127.0.0.1:18081`) with its own `console-data`
+volume; like the inbox, put it behind a TLS proxy and set `ASI_CENTRAL_TOKEN`
+before exposing it beyond loopback.
+
 ## Model interchange and the System One standard
 
 All three neural backends speak one vendor-neutral wire protocol,

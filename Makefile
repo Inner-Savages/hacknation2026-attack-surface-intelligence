@@ -15,9 +15,16 @@ build:
 	CGO_ENABLED=0 go build -o bin/traffic ./cmd/traffic
 	CGO_ENABLED=0 go build -o bin/edgegate ./cmd/edgegate
 
-.PHONY: edgegate cascade50-models cascade50-up cascade50-down cascade50-smoke cascade50-serve
+.PHONY: edgegate cascade50-models cascade50-up cascade50-down cascade50-smoke cascade50-serve console console-up
 edgegate:
 	CGO_ENABLED=0 go build -o bin/edgegate ./cmd/edgegate
+
+# Konsola operatora: podgląd eskalacji z floty sensorów (demo: 137 sensorów).
+console:
+	CGO_ENABLED=0 go build -o bin/console ./cmd/console
+
+console-up: console
+	ASI_CENTRAL_TOKEN=$${ASI_CENTRAL_TOKEN:-demo-token} ./bin/console -demo -listen 127.0.0.1:18081 -data-dir var/console
 
 cascade50-models:
 	./deploy/cascade50/run.sh models

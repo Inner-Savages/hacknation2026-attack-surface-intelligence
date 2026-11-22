@@ -71,6 +71,16 @@ services:
     command: [receive, -listen, "0.0.0.0:8080", -inbox-dir, /data/inbox]
     ports: ["127.0.0.1:18080:8080"]
     volumes: ["central-data:/data"]
+  console:
+    image: asi-console:cascade50
+    build:
+      context: ../..
+      dockerfile: deploy/cascade50/Dockerfile.console
+    read_only: true
+    tmpfs: [/tmp]
+    command: [-listen, "0.0.0.0:8080", -data-dir, /data/console, -demo]
+    ports: ["127.0.0.1:18081:8080"]
+    volumes: ["console-data:/data"]
   gate:
     <<: *edge
     profiles: [tools]
@@ -108,3 +118,4 @@ services:
 volumes:
   central-data:
   edge-data:
+  console-data:
