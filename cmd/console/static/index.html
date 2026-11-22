@@ -52,6 +52,18 @@ a { color: var(--info); text-decoration: none; }
 .tabs { display: flex; gap: 4px; padding: 12px 24px 0; }
 .tab { padding: 8px 16px; border-radius: 8px 8px 0 0; border: 1px solid transparent; border-bottom: none; color: var(--muted); background: none; font-weight: 500; }
 .tab.active { color: var(--text); background: var(--panel); border-color: var(--border); }
+/* Navigation dropdown: the tab strip outgrew the topbar, so all sections
+   live in a single menu that shows the current view's name. */
+.navmenu { position: relative; }
+.navmenu-btn { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--panel-2); color: var(--text); font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.navmenu-btn:hover { border-color: var(--accent); }
+.navmenu-btn .caret { color: var(--muted); font-size: 10px; }
+.navmenu-panel { position: absolute; top: calc(100% + 6px); left: 0; min-width: 230px; max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 6px; z-index: 60; }
+.navmenu-panel[hidden] { display: none; }
+.navmenu-panel .tab { display: flex; width: 100%; text-align: left; padding: 9px 12px; border-radius: 8px; border: none; font-size: 13px; }
+.navmenu-panel .tab:hover { background: var(--panel-2); color: var(--text); }
+.navmenu-panel .tab.active { color: var(--text); background: var(--panel-2); border: none; box-shadow: inset 2px 0 0 var(--accent); }
+.navmenu-panel .tab[hidden] { display: none; }
 .page { padding: 0 24px 48px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
 
@@ -222,19 +234,22 @@ tbody tr:hover { background: var(--panel-2); }
     <span class="logo">∿</span>
     <b>Silence on the Wire</b>
   </div>
-  <nav class="tabs" style="padding:0">
-    <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
-    <button class="tab" data-nav="mapa" onclick="go('#/mapa')">Mapa</button>
-    <button class="tab" data-nav="ekspozycja" onclick="go('#/ekspozycja')">Ekspozycja</button>
-    <button class="tab" data-nav="tls" onclick="go('#/tls')">TLS</button>
-    <button class="tab" data-nav="zasoby" onclick="go('#/zasoby')">Zasoby</button>
-    <button class="tab" data-nav="ryzyko" onclick="go('#/ryzyko')">Ryzyko</button>
-    <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
-    <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
-    <button class="tab" data-nav="cele" onclick="go('#/cele')">Cele i import</button>
-    <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
-    <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
-    <button class="tab" data-nav="role" id="tabRole" onclick="go('#/role')" hidden>Role</button>
+  <nav class="navmenu">
+    <button class="navmenu-btn" id="navMenuBtn" onclick="toggleNavMenu(event)" aria-haspopup="true" aria-expanded="false"><span id="navMenuLabel">Alerty</span><span class="caret" aria-hidden="true">▾</span></button>
+    <div class="navmenu-panel" id="navMenuPanel" hidden>
+      <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
+      <button class="tab" data-nav="mapa" onclick="go('#/mapa')">Mapa</button>
+      <button class="tab" data-nav="ekspozycja" onclick="go('#/ekspozycja')">Ekspozycja</button>
+      <button class="tab" data-nav="tls" onclick="go('#/tls')">TLS</button>
+      <button class="tab" data-nav="zasoby" onclick="go('#/zasoby')">Zasoby</button>
+      <button class="tab" data-nav="ryzyko" onclick="go('#/ryzyko')">Ryzyko</button>
+      <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
+      <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
+      <button class="tab" data-nav="cele" onclick="go('#/cele')">Cele i import</button>
+      <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
+      <button class="tab" data-nav="ustawienia" onclick="go('#/ustawienia')">Ustawienia</button>
+      <button class="tab" data-nav="role" id="tabRole" onclick="go('#/role')" hidden>Role</button>
+    </div>
   </nav>
   <div class="spacer"></div>
   <button class="theme-toggle" id="themeToggle" title="Przełącz motyw">☾</button>
@@ -301,6 +316,26 @@ const session = {user: null, hasUsers: true, registrationOpen: true};
 let ACTOR = 'operator';
 
 function go(hash) { location.hash = hash; }
+
+// Navigation dropdown: open/close, close on outside click / Escape / selection.
+function toggleNavMenu(ev) {
+  ev.stopPropagation();
+  const panel = $('#navMenuPanel');
+  const open = panel.hidden;
+  panel.hidden = !open;
+  $('#navMenuBtn').setAttribute('aria-expanded', String(open));
+}
+function closeNavMenu() {
+  const panel = $('#navMenuPanel');
+  if (!panel || panel.hidden) return;
+  panel.hidden = true;
+  $('#navMenuBtn').setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('.navmenu')) return closeNavMenu();
+  if (e.target.closest('.navmenu-panel .tab')) closeNavMenu();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNavMenu(); });
 window.addEventListener('hashchange', render);
 
 // --- auth ------------------------------------------------------------------
@@ -1688,6 +1723,8 @@ async function render() {
     : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
+  const activeTab = document.querySelector('.tab.active');
+  if (activeTab) $('#navMenuLabel').textContent = activeTab.textContent;
   if (h.startsWith('#/mapa')) return viewMap();
   if (h.startsWith('#/ekspozycja')) return viewExposure();
   if (h.startsWith('#/tls')) return viewTLS();
