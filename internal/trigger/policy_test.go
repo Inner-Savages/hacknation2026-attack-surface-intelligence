@@ -83,7 +83,7 @@ func TestQuietWindowDropsSelfInflictedEvents(t *testing.T) {
 	if ok, why := p.Offer(ev(sensor.ServiceNew, "172.20.0.8", 22), at(10)); ok || why != "quiet: address is being scanned" {
 		t.Fatalf("during scan: %v %q", ok, why)
 	}
-	p.Done(job.Target, at(20))
+	p.Done(job.Target, at(20), false)
 	if ok, why := p.Offer(ev(sensor.ServiceNew, "172.20.0.8", 3306), at(30)); ok || why != "quiet: address just scanned" {
 		t.Fatalf("right after: %v %q", ok, why)
 	}
@@ -109,7 +109,7 @@ func TestCooldownPostponesInsteadOfDropping(t *testing.T) {
 	p := policy()
 	p.Offer(ev(sensor.ServiceChanged, "172.20.0.5", 80), at(0))
 	j := p.Take(at(5), 10)[0]
-	p.Done(j.Target, at(10))
+	p.Done(j.Target, at(10), false)
 
 	p.Offer(ev(sensor.ServiceChanged, "172.20.0.5", 80), at(30)) // after quiet (15s), within cooldown (60s)
 	if jobs := p.Take(at(69), 10); len(jobs) != 0 {
@@ -124,7 +124,7 @@ func TestClosedOnlyGetsLongerCooldown(t *testing.T) {
 	p := policy()
 	p.Offer(ev(sensor.ServiceClosed, "172.20.0.4", 80), at(0)) // flapper
 	j := p.Take(at(5), 10)[0]
-	p.Done(j.Target, at(10))
+	p.Done(j.Target, at(10), false)
 	p.Offer(ev(sensor.ServiceClosed, "172.20.0.4", 80), at(100))
 	if jobs := p.Take(at(200), 10); len(jobs) != 0 {
 		t.Fatalf("closed-only cooldown is 5m: %+v", jobs)
@@ -136,7 +136,7 @@ func TestClosedOnlyGetsLongerCooldown(t *testing.T) {
 	// A service_back in the mix turns it back into a normal cooldown.
 	p2 := policy()
 	p2.Offer(ev(sensor.ServiceClosed, "172.20.0.4", 80), at(0))
-	p2.Done(p2.Take(at(5), 10)[0].Target, at(10))
+	p2.Done(p2.Take(at(5), 10)[0].Target, at(10), false)
 	p2.Offer(ev(sensor.ServiceClosed, "172.20.0.4", 80), at(30))
 	p2.Offer(ev(sensor.ServiceBack, "172.20.0.4", 80), at(31))
 	if jobs := p2.Take(at(70), 10); len(jobs) != 1 || jobs[0].Kind != ScanService {
@@ -191,5 +191,23 @@ func TestServiceEventsJoinPendingHostScan(t *testing.T) {
 	p2.Offer(ev(sensor.ServiceNew, "172.20.0.41", 80), at(1))
 	if jobs := p2.Take(at(10), 10); len(jobs) != 2 {
 		t.Fatalf("verify-host + scan-service: %+v", jobs)
+	}
+}
+
+// A host nobody talks to goes silent again a minute after every scan that
+// woke it up: once verified alive, stop re-verifying it.
+func TestVerifiedAliveStopsSilenceLoop(t *testing.T) {
+	p := policy()
+	p.Offer(ev(sensor.HostSilent, "172.20.0.33", 0), at(0))
+	j := p.Take(at(5), 10)[0]
+	p.Done(j.Target, at(10), true) // still-up
+	if ok, why := p.Offer(ev(sensor.HostSilent, "172.20.0.33", 0), at(90)); ok || why != "verified alive recently" {
+		t.Fatalf("re-verification: %v %q", ok, why)
+	}
+	if ok, _ := p.Offer(ev(sensor.ServiceNew, "172.20.0.33", 8080), at(91)); !ok {
+		t.Fatal("real changes still get scanned")
+	}
+	if ok, _ := p.Offer(ev(sensor.HostSilent, "172.20.0.33", 0), at(10+31*60)); !ok {
+		t.Fatal("after the backoff silence is checked again")
 	}
 }

@@ -187,7 +187,7 @@ func (s *Service) run(ctx context.Context, j Job) {
 	s.record(f)
 
 	s.mu.Lock()
-	s.Policy.Done(j.Target, time.Now())
+	s.Policy.Done(j.Target, time.Now(), f.Verdict == VerdictStillUp || f.Verdict == VerdictStillOpen)
 	s.scans++
 	s.mu.Unlock()
 }
