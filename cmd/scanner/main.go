@@ -4,6 +4,7 @@
 //
 //	scanner -t 127.0.0.1 -p 2223,3001,5673,8787,8888,15432,15673 -Pn -o scan.json
 //	scanner -f targets.txt -allow 10.0.0.0/16 -max-rate 300
+//	scanner schedule -window 22:00-05:00 -every 24h -checkpoint state.jsonl -out results -f targets.txt
 //	scanner diff old.json new.json
 package main
 
@@ -32,6 +33,9 @@ func main() {
 		switch os.Args[1] {
 		case "diff":
 			runDiff(os.Args[2:])
+			return
+		case "schedule":
+			runSchedule(os.Args[2:])
 			return
 		}
 	}
