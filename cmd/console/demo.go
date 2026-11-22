@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,6 +19,20 @@ var demoTypes = []string{"service_changed", "service_new", "host_new", "host_sil
 var demoReasons = []string{"remote_rank_max", "fast_tree_gnb", "model_error", "timeout", "unexpected_model_identity", "fail_open_invalid_event"}
 
 var demoPeople = []string{"Janek Baumgart", "M. Kowalska", "A. Lis", "J. Nowak"}
+
+// isDemoSensorID reports whether an ID belongs to the synthetic demo fleet
+// (edge-<miasto>-<n>), as opposed to a real sensor that reported over the wire.
+func isDemoSensorID(id string) bool {
+	for _, city := range demoCities {
+		if strings.HasPrefix(id, "edge-"+city+"-") {
+			rest := strings.TrimPrefix(id, "edge-"+city+"-")
+			if n, err := strconv.Atoi(rest); err == nil && n > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // seedDemo populates an empty store with a fleet of sensors and a realistic
 // spread of cases across statuses, sensors and event types.
@@ -88,13 +103,30 @@ func relightDemo(store *Store) {
 }
 
 // startDemoLogs appends synthetic raw sensor log lines to the live feed every
-// few seconds, in the exact NDJSON shape the passive sensor ships.
-func startDemoLogs(feed *LiveFeed, store *Store) {
+// few seconds, in the exact NDJSON shape the passive sensor ships. It runs
+// only while the demo feed is enabled — switching the console to live mode
+// (the demo toggle in settings) stops it immediately.
+// demoMACs are synthetic source MACs with recognisable OUI prefixes, so
+// replayed demo log lines classify into plausible device classes (camera,
+// printer, IoT, network gear, workstation, server).
+var demoMACs = []string{
+	"44:19:b6:20:11:5a", // Hikvision
+	"00:11:0a:33:44:55", // Hewlett-Packard
+	"b8:27:eb:66:77:88", // Raspberry Pi
+	"24:5a:4c:99:aa:bb", // Ubiquiti
+	"3c:22:fb:cc:dd:ee", // Apple
+	"00:0c:29:12:34:56", // VMware
+}
+
+func startDemoLogs(feed *LiveFeed, store *Store, active func() bool) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	types := []string{"service_silent", "host_silent", "host_new", "service_new", "service_changed", "host_back", "service_back", "host_silent", "service_silent"}
-	ports := []int{22, 80, 443, 445, 3389, 5900, 8080}
+	ports := []int{22, 80, 443, 445, 3389, 5900, 8080, 554, 9100, 1883}
 	go func() {
 		for range time.Tick(2 * time.Second) {
+			if !active() {
+				continue // live mode: only real edge events reach the feed
+			}
 			if rng.Intn(3) == 0 {
 				continue // irregular cadence, like a real passive sensor
 			}
@@ -117,9 +149,60 @@ func startDemoLogs(feed *LiveFeed, store *Store) {
 			if strings.HasPrefix(typ, "service") {
 				l.Port, l.Proto = ports[rng.Intn(len(ports))], "tcp"
 			}
+			if typ == "host_new" {
+				l.New = demoMACs[rng.Intn(len(demoMACs))]
+			}
 			raw, _ := json.Marshal(l)
 			feed.Append("sensor", sen.ID, l.line(), raw)
 			store.TouchSensor(sen.ID)
+		}
+	}()
+}
+
+// startDemoEscalations synthesises a fresh escalation about once a minute,
+// routed through the normal intake path (persist + audit + AI triage), so in
+// demo mode the AI operator continuously gets real work and its actions are
+// visible as they would be in production.
+func startDemoEscalations(store *Store, active func() bool, onNew func(sensorID, eventID string)) {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano() + 7))
+	go func() {
+		seq := 0
+		for range time.Tick(20 * time.Second) {
+			if !active() {
+				continue
+			}
+			if rng.Intn(3) > 0 {
+				continue // ~1 escalation per minute on average
+			}
+			sensors := store.ListSensors()
+			online := []*Sensor{}
+			for _, sen := range sensors {
+				if sen.Online {
+					online = append(online, sen)
+				}
+			}
+			if len(online) == 0 {
+				continue
+			}
+			sen := online[rng.Intn(len(online))]
+			typ := demoTypes[rng.Intn(len(demoTypes))]
+			score := 0.35 + rng.Float64()*0.63
+			reason := demoReasons[rng.Intn(len(demoReasons))]
+			unresolved := reason == "model_error" || reason == "timeout" || reason == "fail_open_invalid_event"
+			now := time.Now()
+			seq++
+			env := demoEnvelope(sen.ID, typ, fmt.Sprintf("172.28.%d.%d", rng.Intn(3), 2+rng.Intn(250)), 22, score, reason, unresolved, now)
+			env["event_id"] = fmt.Sprintf("demo-live-%d-%d", now.Unix(), seq)
+			raw, _ := json.Marshal(env)
+			var parsed escalationEnvelope
+			if json.Unmarshal(raw, &parsed) != nil {
+				continue
+			}
+			c := caseFromEnvelope(raw, &parsed)
+			created, err := store.AddEscalation(c)
+			if err == nil && created && onNew != nil {
+				onNew(c.SensorID, c.EventID)
+			}
 		}
 	}()
 }

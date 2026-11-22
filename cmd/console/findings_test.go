@@ -45,7 +45,7 @@ func postFinding(h http.Handler, body, token string) *httptest.ResponseRecorder 
 // lands on the case as an audited note and history entry, and the live feed
 // shows the verification.
 func TestFindingsCorrelateWithOpenCase(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, _ := testServer(t)
 	h := s.routes()
 	if postFinding(h, findingJSON("gone-confirmed"), "").Code != 401 {
 		t.Fatal("accepted finding without token")
@@ -104,7 +104,7 @@ func TestFindingsCorrelateWithOpenCase(t *testing.T) {
 // A finding about a host with no open case opens one, so verified evidence
 // is never orphaned.
 func TestFindingsWithoutCaseOpensOne(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, _ := testServer(t)
 	h := s.routes()
 	w := postFinding(h, findingJSON("still-open"), "test-token")
 	if w.Code != 200 {
@@ -155,14 +155,14 @@ func TestScanActionRequestsVerification(t *testing.T) {
 	}))
 	defer trig.Close()
 
-	s, _ := testServer(t)
+	s, _, tok := testServer(t)
 	s.triggerURL = trig.URL + "/events"
 	s.triggerToken = "trig-token"
 	if _, err := s.store.AddEscalation(caseFromEnvForTest("e2", "edge-b-2")); err != nil {
 		t.Fatal(err)
 	}
 	h := s.routes()
-	r := httptest.NewRequest("POST", "/api/alerts/e2/actions", strings.NewReader(`{"action":"scan"}`))
+	r := withAuth(httptest.NewRequest("POST", "/api/alerts/e2/actions", strings.NewReader(`{"action":"scan"}`)), tok)
 	w0 := httptest.NewRecorder()
 	h.ServeHTTP(w0, r)
 	if w0.Code != 200 {

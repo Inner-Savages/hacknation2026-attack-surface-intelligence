@@ -104,6 +104,9 @@ type sensorLog struct {
 	Port   int    `json:"port,omitempty"`
 	Proto  string `json:"proto,omitempty"`
 	Source string `json:"source,omitempty"`
+	// New carries the MAC address on host_new events (the sensor reports the
+	// observed source MAC there) and fingerprints on service changes.
+	New string `json:"new,omitempty"`
 }
 
 func (l sensorLog) line() string {

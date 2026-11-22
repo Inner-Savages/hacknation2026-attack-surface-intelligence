@@ -2,22 +2,55 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-func testServer(t *testing.T) (*server, *httptest.Server) {
+// testServer builds a console with one registered admin and returns the
+// session cookie used to authenticate operator API calls.
+func testServer(t *testing.T) (*server, *httptest.Server, string) {
 	t.Helper()
-	store, err := openStore(t.TempDir())
+	dir := t.TempDir()
+	store, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &server{store: store, token: "test-token", demo: true, feed: newLiveFeed(100), operator: "Janek Baumgart"}
-	return s, httptest.NewServer(s.routes())
+	a, err := openAuth(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := openSettings(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rl, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := a.register("janek", "Janek Baumgart", "testowe1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess := a.newSession(u)
+	s := &server{
+		store: store, token: "test-token", demoData: true, feed: newLiveFeed(100),
+		operator: "Janek Baumgart", aiAuto: true,
+		auth: a, settings: st, rules: rl,
+	}
+	return s, httptest.NewServer(s.routes()), sess.Token
+}
+
+// withAuth adds the session cookie to an API request.
+func withAuth(r *http.Request, token string) *http.Request {
+	r.AddCookie(&http.Cookie{Name: "sotw_session", Value: token})
+	return r
 }
 
 func escalation(id, sensor string) string {
@@ -41,7 +74,7 @@ func post(t *testing.T, url, body, token string) *httptest.ResponseRecorder {
 }
 
 func TestIntakeRequiresAuthPersistsAndDeduplicates(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, _ := testServer(t)
 	h := s.routes()
 	req := func(body, token string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/events", strings.NewReader(body))
@@ -84,7 +117,7 @@ func TestIntakeRequiresAuthPersistsAndDeduplicates(t *testing.T) {
 }
 
 func TestWorkflowAndTwoStepIsolate(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, tok := testServer(t)
 	if _, err := s.store.AddEscalation(caseFromEnvForTest("e2", "edge-b-2")); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +125,7 @@ func TestWorkflowAndTwoStepIsolate(t *testing.T) {
 	call := func(path string, body map[string]string) (int, map[string]interface{}) {
 		b, _ := json.Marshal(body)
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("POST", path, bytes.NewReader(b)))
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", path, bytes.NewReader(b)), tok))
 		var out map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &out)
 		return w.Code, out
@@ -113,29 +146,37 @@ func TestWorkflowAndTwoStepIsolate(t *testing.T) {
 	if code, _ := call("/api/alerts/e2/actions", map[string]string{"action": "isolate", "actor": "A. Lis", "confirm": "true"}); code != 200 {
 		t.Fatal("confirmed isolate failed")
 	}
+	// A cut-off host can be restored to the network, single-step, audited.
+	code, out = call("/api/alerts/e2/actions", map[string]string{"action": "reconnect", "actor": "A. Lis"})
+	if code != 200 || out["state"] != "executed" {
+		t.Fatalf("reconnect failed: %v %v", code, out)
+	}
 	c, _ := s.store.Get("e2")
-	if c.Status != StatusVerify || len(c.Notes) != 1 || len(c.Actions) != 1 || c.PendingAction != "" {
+	if c.Status != StatusVerify || len(c.Notes) != 1 || len(c.Actions) != 2 || c.PendingAction != "" {
 		t.Fatalf("bad final case: %+v", c)
+	}
+	if c.Actions[1].Action != "reconnect" {
+		t.Fatalf("reconnect was not recorded: %+v", c.Actions)
 	}
 	var kinds []string
 	for _, h := range c.History {
 		kinds = append(kinds, h.Kind)
 	}
-	if strings.Join(kinds, ",") != "alert,status,note,action,action" {
+	if strings.Join(kinds, ",") != "alert,status,note,action,action,action" {
 		t.Fatalf("unexpected history: %v", kinds)
 	}
 }
 
 // The UI sends confirm as a JSON boolean; decoding must not drop the action.
 func TestActionAcceptsBooleanConfirm(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, tok := testServer(t)
 	if _, err := s.store.AddEscalation(caseFromEnvForTest("e3", "edge-c-3")); err != nil {
 		t.Fatal(err)
 	}
 	h := s.routes()
 	raw := func(body string) (int, map[string]interface{}) {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("POST", "/api/alerts/e3/actions", strings.NewReader(body)))
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/e3/actions", strings.NewReader(body)), tok))
 		var out map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &out)
 		return w.Code, out
@@ -160,7 +201,7 @@ func caseFromEnvForTest(id, sensor string) *Case {
 // The passive sensor ships NDJSON lines; the console feeds them to the live
 // dashboard and treats the sender as alive.
 func TestSensorLogIntakeFeedsDashboardAndLiveness(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, _ := testServer(t)
 	h := s.routes()
 	body := `{"time":"2026-11-21T17:28:55.812537553+01:00","type":"service_silent","ip":"172.28.0.30","port":80,"proto":"tcp","source":"passive"}
 {"time":"2026-11-21T17:29:00.812662051+01:00","type":"host_silent","ip":"172.28.0.1","source":"passive"}
@@ -249,15 +290,17 @@ func TestAIAnalysisWithFakeProvider(t *testing.T) {
 	}))
 	defer fake.Close()
 
-	s, _ := testServer(t)
-	s.ai = &AIClient{baseURL: fake.URL + "/v1", apiKey: "test-key", model: "test-model", http: fake.Client()}
+	s, _, tok := testServer(t)
+	s.settings.AIBaseURL = fake.URL + "/v1"
+	s.settings.AIAPIKey = "test-key"
+	s.settings.AIModel = "test-model"
 	if _, err := s.store.AddEscalation(caseFromEnvForTest("e9", "edge-lab-1")); err != nil {
 		t.Fatal(err)
 	}
 	s.feed.Append("sensor", "edge-lab-1", "service_silent 172.28.0.30", nil)
 	h := s.routes()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/alerts/e9/analysis", nil))
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/e9/analysis", nil), tok))
 	if w.Code != 200 {
 		t.Fatalf("analysis failed: %d %s", w.Code, w.Body.String())
 	}
@@ -271,31 +314,31 @@ func TestAIAnalysisWithFakeProvider(t *testing.T) {
 	}
 	// AI status reports the configured provider.
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/ai/status", nil))
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/ai/status", nil), tok))
 	var st map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &st)
 	if st["enabled"] != true || st["model"] != "test-model" {
 		t.Fatalf("bad ai status: %v", st)
 	}
 	// Without a configured provider the endpoint degrades gracefully.
-	s2, _ := testServer(t)
+	s2, _, tok2 := testServer(t)
 	w2 := httptest.NewRecorder()
-	s2.routes().ServeHTTP(w2, httptest.NewRequest("POST", "/api/alerts/e9/analysis", nil))
+	s2.routes().ServeHTTP(w2, withAuth(httptest.NewRequest("POST", "/api/alerts/e9/analysis", nil), tok2))
 	if w2.Code != 503 {
 		t.Fatalf("expected 503 without provider, got %d", w2.Code)
 	}
 }
 
-// UI actions without an explicit actor are recorded under the configured
-// operator name.
+// UI actions run under the logged-in operator's identity, regardless of the
+// actor field sent by the client.
 func TestOperatorNameIsDefaultActor(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, tok := testServer(t)
 	if _, err := s.store.AddEscalation(caseFromEnvForTest("e10", "edge-x-1")); err != nil {
 		t.Fatal(err)
 	}
 	h := s.routes()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/alerts/e10/status", strings.NewReader(`{"status":"do_weryfikacji"}`)))
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/e10/status", strings.NewReader(`{"status":"do_weryfikacji"}`)), tok))
 	if w.Code != 200 {
 		t.Fatalf("status change failed: %d", w.Code)
 	}
@@ -307,7 +350,7 @@ func TestOperatorNameIsDefaultActor(t *testing.T) {
 }
 
 func TestFleetScalePaginationAndFilters(t *testing.T) {
-	s, _ := testServer(t)
+	s, _, tok := testServer(t)
 	seedDemo(s.store, 137)
 	s.store.markOffline(90 * time.Second)
 	sensors := s.store.ListSensors()
@@ -317,7 +360,7 @@ func TestFleetScalePaginationAndFilters(t *testing.T) {
 	h := s.routes()
 	get := func(path string) map[string]interface{} {
 		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", path, nil), tok))
 		var out map[string]interface{}
 		json.Unmarshal(w.Body.Bytes(), &out)
 		return out
@@ -339,5 +382,769 @@ func TestFleetScalePaginationAndFilters(t *testing.T) {
 		if it.(map[string]interface{})["sensor_id"] != "edge-warszawa-1" {
 			t.Fatal("sensor filter leaked another sensor")
 		}
+	}
+}
+
+// Registration, login, session protection and logout.
+func TestAuthFlow(t *testing.T) {
+	dir := t.TempDir()
+	store, _ := openStore(dir)
+	a, _ := openAuth(dir)
+	st, _ := openSettings(dir)
+	s := &server{store: store, token: "tok", feed: newLiveFeed(10), auth: a, settings: st}
+	h := s.routes()
+
+	// Before the first account, operator APIs are locked (setup required).
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/summary", nil))
+	if w.Code != 401 {
+		t.Fatalf("expected 401 before setup, got %d", w.Code)
+	}
+	postAuth := func(path string, body string) (*httptest.ResponseRecorder, []*http.Cookie) {
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w, w.Result().Cookies()
+	}
+	// First registered operator becomes the admin and gets a session cookie.
+	w, cookies := postAuth("/api/register", `{"login":"janek","name":"Janek Baumgart","password":"sekret1"}`)
+	if w.Code != 200 || len(cookies) == 0 {
+		t.Fatalf("register failed: %d %s", w.Code, w.Body.String())
+	}
+	if !a.users["janek"].Admin {
+		t.Fatal("first operator must be admin")
+	}
+	// Weak and duplicate registrations are rejected.
+	if w, _ = postAuth("/api/register", `{"login":"ab","name":"X Y","password":"sekret1"}`); w.Code != 400 {
+		t.Fatal("accepted a short login")
+	}
+	if w, _ = postAuth("/api/register", `{"login":"janek","name":"Kto Inny","password":"sekret1"}`); w.Code != 400 {
+		t.Fatal("accepted a duplicate login")
+	}
+	// A protected endpoint rejects anonymous and accepts the session.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/summary", nil))
+	if w.Code != 401 {
+		t.Fatal("anonymous request reached a protected endpoint")
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/summary", nil), cookies[0].Value))
+	if w.Code != 200 {
+		t.Fatalf("session rejected: %d", w.Code)
+	}
+	// Wrong password fails, right password logs in.
+	if w, _ = postAuth("/api/login", `{"login":"janek","password":"zle"}`); w.Code != 401 {
+		t.Fatal("accepted a wrong password")
+	}
+	w, cookies2 := postAuth("/api/login", `{"login":"janek","password":"sekret1"}`)
+	if w.Code != 200 || len(cookies2) == 0 {
+		t.Fatalf("login failed: %d", w.Code)
+	}
+	// Logout kills the session.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/logout", nil), cookies2[0].Value))
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/summary", nil), cookies2[0].Value))
+	if w.Code != 401 {
+		t.Fatal("session survived logout")
+	}
+	// Accounts survive a restart (users.json persisted).
+	a2, err := openAuth(dir)
+	if err != nil || !a2.hasUsers() {
+		t.Fatal("accounts were not persisted")
+	}
+}
+
+// The settings screen switches demo/live mode and configures the AI provider
+// — including the API key — without a restart; the key never leaks back.
+func TestConfigFromUI(t *testing.T) {
+	s, _, tok := testServer(t)
+	h := s.routes()
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest(method, path, strings.NewReader(body)), tok))
+		return w
+	}
+	// Demo feed is on by default in demo mode; the toggle switches to live.
+	s.demoDefault = true
+	if !s.demoFeedOn() {
+		t.Fatal("demo feed should default to on in demo mode")
+	}
+	if w := call("POST", "/api/config", `{"demo_feed":false}`); w.Code != 200 {
+		t.Fatalf("config update failed: %s", w.Body.String())
+	}
+	if s.demoFeedOn() {
+		t.Fatal("demo feed did not switch off")
+	}
+	// The change is persisted.
+	st2, _ := openSettings(s.store.dir)
+	if st2.DemoFeed == nil || *st2.DemoFeed != false {
+		t.Fatal("demo_feed was not persisted")
+	}
+	// AI provider fully configurable from the UI; the key is write-only.
+	w := call("POST", "/api/config", `{"ai_base_url":"http://127.0.0.1:11434/v1","ai_model":"llama3.2","ai_api_key":"sekretny-klucz"}`)
+	if w.Code != 200 {
+		t.Fatalf("AI config failed: %s", w.Body.String())
+	}
+	client := s.aiClient()
+	if client == nil || client.baseURL != "http://127.0.0.1:11434/v1" || client.model != "llama3.2" || client.apiKey != "sekretny-klucz" {
+		t.Fatalf("settings did not drive the AI client: %+v", client)
+	}
+	w = call("GET", "/api/config", ``)
+	body := w.Body.String()
+	if strings.Contains(body, "sekretny-klucz") {
+		t.Fatal("API key leaked in the config response")
+	}
+	var cfg map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &cfg)
+	if cfg["ai_api_key_set"] != true || cfg["demo_feed"] != false {
+		t.Fatalf("bad config view: %v", cfg)
+	}
+	// Config changes are mirrored into the live feed for auditability.
+	items, _ := s.feed.Since(0, 100)
+	var sawLive bool
+	for _, e := range items {
+		if strings.Contains(e.Text, "trybie live") {
+			sawLive = true
+		}
+	}
+	if !sawLive {
+		t.Fatal("config change was not mirrored to the live feed")
+	}
+	// Non-admin operators cannot change configuration.
+	u, _ := s.auth.register("ania", "Anna Lis", "haslo123")
+	sess := a2Session(s.auth, u)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/config", strings.NewReader(`{"demo_feed":true}`)), sess))
+	if w.Code != 403 {
+		t.Fatalf("non-admin changed config: %d", w.Code)
+	}
+}
+
+func a2Session(a *auth, u *user) string { return a.newSession(u).Token }
+
+// Admins manage operators: promotion works, demotion of the last admin is
+// refused, and changes apply to live sessions immediately.
+func TestOperatorAdminManagement(t *testing.T) {
+	s, _, tok := testServer(t) // janek is the seeded admin
+	h := s.routes()
+	u, err := s.auth.register("ania", "Anna Lis", "haslo123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aniaTok := a2Session(s.auth, u)
+	// Ania is not an admin: config is out of reach.
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/config", nil), aniaTok))
+	if w.Code != 403 {
+		t.Fatalf("expected 403 for non-admin, got %d", w.Code)
+	}
+	// The last admin cannot demote themselves.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/users/janek/admin", strings.NewReader(`{"admin":false}`)), tok))
+	if w.Code != 400 {
+		t.Fatalf("demoted the last admin: %d", w.Code)
+	}
+	// Promote Ania; her existing session gains the flag at once.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/users/ania/admin", strings.NewReader(`{"admin":true}`)), tok))
+	if w.Code != 200 {
+		t.Fatalf("promotion failed: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/config", nil), aniaTok))
+	if w.Code != 200 {
+		t.Fatalf("promoted operator still locked out: %d", w.Code)
+	}
+	// The users list reflects the change and promotion persisted.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/users", nil), tok))
+	var list struct {
+		Items []struct {
+			Login string `json:"login"`
+			Admin bool   `json:"admin"`
+		} `json:"items"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &list)
+	admins := 0
+	for _, it := range list.Items {
+		if it.Admin {
+			admins++
+		}
+	}
+	if admins != 2 {
+		t.Fatalf("expected 2 admins, got %d (%+v)", admins, list.Items)
+	}
+	a2, err := openAuth(s.store.dir)
+	if err != nil || !a2.users["ania"].Admin {
+		t.Fatal("admin flag was not persisted")
+	}
+
+	// Account deletion: removes the user and their sessions, refuses the
+	// last admin and self-deletion while logged in.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("DELETE", "/api/users/janek", nil), tok))
+	if w.Code != 400 {
+		t.Fatalf("self-deletion while logged in accepted: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("DELETE", "/api/users/ania", nil), tok))
+	if w.Code != 200 {
+		t.Fatalf("delete failed: %d %s", w.Code, w.Body.String())
+	}
+	if _, ok := s.auth.users["ania"]; ok {
+		t.Fatal("account survived deletion")
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/summary", nil), aniaTok))
+	if w.Code != 401 {
+		t.Fatal("deleted account's session still works")
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("DELETE", "/api/users/janek", nil), aniaTok))
+	if w.Code != 401 && w.Code != 403 {
+		t.Fatalf("expected auth failure for deleted operator, got %d", w.Code)
+	}
+}
+
+// Switching to live mode purges the synthetic fleet: demo cases and sensors
+// disappear from memory and disk, real cases stay, and the summary stops
+// reporting demo content.
+func TestLiveSwitchPurgesDemoData(t *testing.T) {
+	s, _, tok := testServer(t)
+	s.demoDefault = true
+	seedDemo(s.store, 137)
+	// A real case that arrived over the wire must survive the purge.
+	if _, err := s.store.AddEscalation(caseFromEnvForTest("real-1", "lab")); err != nil {
+		t.Fatal(err)
+	}
+	before := len(s.store.ListCases())
+	if before < 100 {
+		t.Fatalf("demo seed too small for the test: %d", before)
+	}
+	h := s.routes()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/config", strings.NewReader(`{"demo_feed":false}`)), tok))
+	if w.Code != 200 {
+		t.Fatalf("config update failed: %s", w.Body.String())
+	}
+	cases := s.store.ListCases()
+	if len(cases) != 1 {
+		t.Fatalf("expected only the real case after purge, got %d", len(cases))
+	}
+	if cases[0].EventID != "real-1" {
+		t.Fatalf("real case was purged: %+v", cases[0])
+	}
+	for _, sen := range s.store.ListSensors() {
+		if isDemoSensorID(sen.ID) {
+			t.Fatalf("demo sensor survived the purge: %s", sen.ID)
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(s.store.dir, "cases"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("demo case files left on disk: %v (%d)", err, len(entries))
+	}
+	// Summary flips to live without a demo badge.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/summary", nil), tok))
+	var sum map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &sum)
+	if sum["demo"] != false || sum["live"] != true {
+		t.Fatalf("summary still reports demo content: %v", sum)
+	}
+	if sum["sensors"].(map[string]interface{})["total"].(float64) != 1 {
+		t.Fatalf("fleet was not rebuilt: %v", sum["sensors"])
+	}
+}
+
+// Enabling operator mode takes over the open backlog; a manual endpoint run
+// triages one case; fresh escalations are triaged exactly once.
+func TestAIOperatorActivationPaths(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]string{
+				"role":    "assistant",
+				"content": `{"threat":"low","status":"do_weryfikacji","note":"Niska ocena ryzyka, standardowa zmiana usługi.","action":"observe","confidence":"średnia"}`,
+			}}},
+		})
+	}))
+	defer fake.Close()
+
+	newOpServer := func(t *testing.T, operatorOn bool) (*server, string) {
+		t.Helper()
+		s, _, tok := testServer(t)
+		s.settings.AIBaseURL = fake.URL + "/v1"
+		s.settings.AIAPIKey = "k"
+		s.settings.AIModel = "op-model"
+		s.settings.AIOperator = &operatorOn
+		return s, tok
+	}
+	operatorNoted := func(s *server, id string) bool {
+		c, _ := s.store.Get(id)
+		for _, n := range c.Notes {
+			if strings.Contains(n.Actor, "(operator)") {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Backfill: open cases are triaged, closed ones are skipped, the feed
+	// records the takeover.
+	t.Run("backfill", func(t *testing.T) {
+		s, _ := newOpServer(t, true)
+		s.store.AddEscalation(caseFromEnvForTest("b1", "edge-a-1"))
+		s.store.AddEscalation(caseFromEnvForTest("b2", "edge-a-2"))
+		s.store.AddEscalation(caseFromEnvForTest("b3", "edge-a-3"))
+		s.store.mutate("b3", func(c *Case) (HistoryEntry, error) {
+			c.Status = StatusConfirmed
+			return HistoryEntry{At: time.Now(), Kind: "status", Actor: "t", Text: "x"}, nil
+		})
+		s.backfillAIOperator(10)
+		if !operatorNoted(s, "b1") || !operatorNoted(s, "b2") {
+			t.Fatal("open cases were not triaged by the backfill")
+		}
+		if operatorNoted(s, "b3") {
+			t.Fatal("closed case was triaged")
+		}
+		items, _ := s.feed.Since(0, 500)
+		var saw bool
+		for _, e := range items {
+			if strings.Contains(e.Text, "zaległości") {
+				saw = true
+			}
+		}
+		if !saw {
+			t.Fatal("missing backfill feed entry")
+		}
+	})
+
+	// Manual run: 409 when the mode is off, 200 and a triaged case when on.
+	t.Run("manual endpoint", func(t *testing.T) {
+		s, tok := newOpServer(t, false)
+		s.store.AddEscalation(caseFromEnvForTest("m1", "edge-m-1"))
+		h := s.routes()
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/m1/operator", nil), tok))
+		if w.Code != 409 {
+			t.Fatalf("expected 409 with operator mode off, got %d", w.Code)
+		}
+		on := true
+		s.settings.AIOperator = &on
+		w = httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/alerts/m1/operator", nil), tok))
+		if w.Code != 200 {
+			t.Fatalf("manual operator run failed: %d %s", w.Code, w.Body.String())
+		}
+		if !operatorNoted(s, "m1") {
+			t.Fatal("manual run did not triage the case")
+		}
+	})
+
+	// Fresh escalations are triaged automatically; duplicates are not.
+	t.Run("intake trigger", func(t *testing.T) {
+		s, _ := newOpServer(t, true)
+		h := s.routes()
+		post := func() int {
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("POST", "/events", strings.NewReader(escalation("i1", "edge-i-1")))
+			r.Header.Set("Authorization", "Bearer test-token")
+			h.ServeHTTP(w, r)
+			return w.Code
+		}
+		if post() != 202 {
+			t.Fatal("intake rejected the escalation")
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for !operatorNoted(s, "i1") {
+			if time.Now().After(deadline) {
+				t.Fatal("operator did not triage a fresh escalation")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if post() != 202 {
+			t.Fatal("duplicate was not acknowledged")
+		}
+		time.Sleep(400 * time.Millisecond)
+		c, _ := s.store.Get("i1")
+		count := 0
+		for _, n := range c.Notes {
+			if strings.Contains(n.Actor, "(operator)") {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("duplicate delivery re-triaged the case (%d operator notes)", count)
+		}
+	})
+}
+
+// The AI operator triages a case end to end: threat assessment, status,
+// note and a safe action — all audited. Isolation is only armed, never
+// executed by the AI.
+func TestAIOperatorDecision(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]string{
+				"role":    "assistant",
+				"content": `{"threat":"medium","status":"potwierdzony","note":"Host zniknął z sieci tuż po zmianie usługi na porcie 22 — podejrzana sekwencja.","action":"observe","confidence":"średnia"}`,
+			}}},
+		})
+	}))
+	defer fake.Close()
+
+	s, _, _ := testServer(t)
+	s.settings.AIBaseURL = fake.URL + "/v1"
+	s.settings.AIAPIKey = "k"
+	s.settings.AIModel = "op-model"
+	on := true
+	s.settings.AIOperator = &on
+	if _, err := s.store.AddEscalation(caseFromEnvForTest("e21", "edge-op-1")); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := s.store.Get("e21")
+	s.runAIOperator(context.Background(), c)
+
+	c, _ = s.store.Get("e21")
+	if c.Status != StatusConfirmed {
+		t.Fatalf("AI operator did not set the status: %s", c.Status)
+	}
+	if len(c.Actions) != 1 || c.Actions[0].Action != "observe" || c.Actions[0].Actor != "AI · op-model (operator)" {
+		t.Fatalf("AI action not audited: %+v", c.Actions)
+	}
+	if len(c.Notes) != 1 || !strings.Contains(c.Notes[0].Text, "OCENA ZAGROŻENIA: średnie") {
+		t.Fatalf("missing threat note: %+v", c.Notes)
+	}
+	last := c.History[len(c.History)-1]
+	if last.Kind != "ai" || last.Actor != "AI · op-model (operator)" {
+		t.Fatalf("missing operator history entry: %+v", last)
+	}
+
+	// Isolation is armed for a human, never executed by the AI.
+	fake2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{{"message": map[string]string{
+				"role":    "assistant",
+				"content": `{"threat":"high","status":"potwierdzony","note":"Aktywne skanowanie z sąsiedniego hosta.","action":"isolate","confidence":"wysoka"}`,
+			}}},
+		})
+	}))
+	defer fake2.Close()
+	s.settings.AIBaseURL = fake2.URL + "/v1"
+	if _, err := s.store.AddEscalation(caseFromEnvForTest("e22", "edge-op-1")); err != nil {
+		t.Fatal(err)
+	}
+	c2, _ := s.store.Get("e22")
+	s.runAIOperator(context.Background(), c2)
+	c2, _ = s.store.Get("e22")
+	if c2.PendingAction != "isolate" {
+		t.Fatal("AI isolate was not armed for human confirmation")
+	}
+	for _, a := range c2.Actions {
+		if a.Action == "isolate" {
+			t.Fatal("AI executed isolation without a human")
+		}
+	}
+}
+
+// --- rule mode: deterministic triage without the model stack ---------------
+
+func ruleCase() *Case {
+	return &Case{
+		EventID: "r1", SensorID: "edge-a-1", EventType: "service_changed",
+		Source: "10.0.4.17", Target: "tcp:22", Score: 0.86,
+		Reason: "remote_rank_max", Status: StatusNew,
+	}
+}
+
+func TestRuleMatching(t *testing.T) {
+	rs := &ruleStore{rules: []*Rule{}}
+	c := ruleCase()
+
+	// Empty conditions match everything; the first match wins.
+	rs.rules = []*Rule{
+		{ID: "a", Name: "łap-wszystko", Enabled: true, SetStatus: StatusVerify},
+		{ID: "b", Name: "nigdy", Enabled: true, SetStatus: StatusConfirmed},
+	}
+	if got := rs.match(c); got == nil || got.ID != "a" {
+		t.Fatalf("first match should win, got %+v", got)
+	}
+
+	// Disabled rules are skipped.
+	rs.rules[0].Enabled = false
+	if got := rs.match(c); got == nil || got.ID != "b" {
+		t.Fatalf("disabled rule should be skipped, got %+v", got)
+	}
+
+	// Conditions: event types, ports, CIDR, sensor, min score, unresolved.
+	rs.rules = []*Rule{{
+		ID: "c", Name: "rdp-spoza-sieci", Enabled: true,
+		EventTypes: []string{"service_new"}, Ports: []int{3389},
+	}}
+	if rs.match(c) != nil {
+		t.Fatal("event type mismatch should not match")
+	}
+	rs.rules[0].EventTypes = []string{"service_changed"}
+	if rs.match(c) != nil {
+		t.Fatal("port mismatch should not match")
+	}
+	rs.rules[0].Ports = []int{22, 3389}
+	rs.rules[0].IPMatch = "192.168.0.0/16"
+	if rs.match(c) != nil {
+		t.Fatal("CIDR mismatch should not match")
+	}
+	rs.rules[0].IPMatch = "10.0.0.0/8"
+	rs.rules[0].SensorID = "edge-b-9"
+	if rs.match(c) != nil {
+		t.Fatal("sensor mismatch should not match")
+	}
+	rs.rules[0].SensorID = "edge-a-1"
+	min := 0.9
+	rs.rules[0].MinScore = &min
+	if rs.match(c) != nil {
+		t.Fatal("score below min_score should not match")
+	}
+	min = 0.5
+	unres := true
+	rs.rules[0].Unresolved = &unres
+	if rs.match(c) != nil {
+		t.Fatal("unresolved mismatch should not match")
+	}
+	unres = false
+	if got := rs.match(c); got == nil || got.ID != "c" {
+		t.Fatalf("fully matching rule should win, got %+v", got)
+	}
+}
+
+func TestRuleValidationAndPersistence(t *testing.T) {
+	dir := t.TempDir()
+	rs, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.replace([]*Rule{{Name: "zły-cidr", IPMatch: "10.0.0.0/33"}}); err == nil {
+		t.Fatal("invalid CIDR was accepted")
+	}
+	if err := rs.replace([]*Rule{{Name: "zły-status", SetStatus: "banan"}}); err == nil {
+		t.Fatal("invalid status was accepted")
+	}
+	if err := rs.replace([]*Rule{{Name: "zła-akcja", Action: "podpal-serwerownię"}}); err == nil {
+		t.Fatal("invalid action was accepted")
+	}
+	if err := rs.replace([]*Rule{{Name: ""}}); err == nil {
+		t.Fatal("nameless rule was accepted")
+	}
+	good := []*Rule{{Name: "ok", Enabled: true, SetStatus: StatusVerify, IPMatch: "10.0.0.0/8"}}
+	if err := rs.replace(good); err != nil {
+		t.Fatalf("valid rule rejected: %v", err)
+	}
+	if good[0].ID == "" {
+		t.Fatal("rule id was not generated")
+	}
+	reloaded, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.list()) != 1 || reloaded.list()[0].Name != "ok" {
+		t.Fatal("rules were not durable across reopen")
+	}
+}
+
+// Rule mode triages fresh escalations deterministically and leaves the same
+// audit trail a human or the AI operator would leave.
+func TestRuleModeTriageViaIntake(t *testing.T) {
+	s, _, _ := testServer(t)
+	if err := s.rules.replace([]*Rule{{
+		Name: "ssh-wysoka-ocena", Enabled: true, Ports: []int{22},
+		SetStatus: StatusVerify, Assign: "Janek Baumgart",
+		Note: "port 22 z wysoką oceną — do weryfikacji",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	// Rule mode on via settings (same as the UI toggle).
+	if err := s.settings.update(configPatch{RuleMode: boolPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	h := s.routes()
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/events", strings.NewReader(escalation("rm1", "edge-a-1")))
+	r.Header.Set("Authorization", "Bearer test-token")
+	h.ServeHTTP(w, r)
+	if w.Code != 202 {
+		t.Fatalf("intake failed: %d", w.Code)
+	}
+	c, ok := s.store.Get("rm1")
+	if !ok {
+		t.Fatal("case missing")
+	}
+	if c.Status != StatusVerify || c.Assignee != "Janek Baumgart" {
+		t.Fatalf("rule did not triage the case: %+v", c)
+	}
+	var sawRule bool
+	for _, e := range c.History {
+		if e.Kind == "rule" && strings.HasPrefix(e.Actor, "silnik reguł · ssh-wysoka-ocena") {
+			sawRule = true
+		}
+	}
+	if !sawRule {
+		t.Fatalf("rule decision missing from the audit trail: %+v", c.History)
+	}
+	if len(c.Notes) != 1 || c.Notes[0].Actor != "silnik reguł · ssh-wysoka-ocena" {
+		t.Fatalf("rule note missing: %+v", c.Notes)
+	}
+	// With rule mode off the same intake stays untouched by the engine.
+	if err := s.settings.update(configPatch{RuleMode: boolPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("POST", "/events", strings.NewReader(escalation("rm2", "edge-a-1")))
+	r.Header.Set("Authorization", "Bearer test-token")
+	h.ServeHTTP(w, r)
+	c, _ = s.store.Get("rm2")
+	if c.Status != StatusNew {
+		t.Fatalf("rule engine acted with rule mode off: %+v", c)
+	}
+}
+
+// A rule may never cut a host off by itself — it only arms the isolation,
+// exactly like the AI operator; a human confirms.
+func TestRuleIsolateOnlyArms(t *testing.T) {
+	s, _, _ := testServer(t)
+	if err := s.rules.replace([]*Rule{{Name: "izoluj-rdp", Enabled: true, Ports: []int{22}, Action: "isolate"}}); err != nil {
+		t.Fatal(err)
+	}
+	c := ruleCase()
+	if _, err := s.store.AddEscalation(c); err != nil {
+		t.Fatal(err)
+	}
+	if !s.applyRules(c) {
+		t.Fatal("rule did not match")
+	}
+	got, _ := s.store.Get("r1")
+	if got.PendingAction != "isolate" {
+		t.Fatalf("isolation was not armed: %+v", got)
+	}
+	for _, a := range got.Actions {
+		if a.Action == "isolate" && a.Executed {
+			t.Fatal("rule executed isolation without a human")
+		}
+	}
+}
+
+func TestRulesAPIAndApplyToOpen(t *testing.T) {
+	s, _, tok := testServer(t)
+	h := s.routes()
+	call := func(method, path, body, token string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, withAuth(httptest.NewRequest(method, path, strings.NewReader(body)), token))
+		return w
+	}
+	// Non-admin operators may read rules but not change them.
+	u, _ := s.auth.register("ania", "Anna Lis", "haslo123")
+	aniaTok := a2Session(s.auth, u)
+	if w := call("GET", "/api/rules", "", aniaTok); w.Code != 200 {
+		t.Fatalf("operator could not read rules: %d", w.Code)
+	}
+	if w := call("PUT", "/api/rules", `{"items":[]}`, aniaTok); w.Code != 403 {
+		t.Fatalf("non-admin replaced rules: %d", w.Code)
+	}
+	// Admin saves the list; invalid payloads are rejected with a message.
+	if w := call("PUT", "/api/rules", `{"items":[{"name":"zła","ip_match":"fe80::/129"}]}`, tok); w.Code != 400 {
+		t.Fatalf("invalid rule accepted: %d", w.Code)
+	}
+	body := `{"items":[{"name":"eskaluj-ssh","enabled":true,"ports":[22],"set_status":"do_weryfikacji"}]}`
+	if w := call("PUT", "/api/rules", body, tok); w.Code != 200 {
+		t.Fatalf("PUT rules failed: %d %s", w.Code, w.Body.String())
+	}
+	// The backlog is re-triaged on demand.
+	if _, err := s.store.AddEscalation(ruleCase()); err != nil {
+		t.Fatal(err)
+	}
+	w := call("POST", "/api/rules/apply", "{}", tok)
+	if w.Code != 200 {
+		t.Fatalf("apply failed: %d", w.Code)
+	}
+	var res struct {
+		Triaged int `json:"triaged"`
+		Scanned int `json:"scanned"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &res)
+	if res.Triaged != 1 || res.Scanned != 1 {
+		t.Fatalf("bad apply counters: %+v", res)
+	}
+	c, _ := s.store.Get("r1")
+	if c.Status != StatusVerify {
+		t.Fatalf("backlog case not triaged: %+v", c)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
+// First run seeds the starter rules (the edge's risky/management port
+// classification ported into the console) and persists them, so operators
+// start from a useful, editable list instead of an empty engine.
+func TestDefaultRulesSeededOnFirstRun(t *testing.T) {
+	dir := t.TempDir()
+	rs, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded := rs.list()
+	if len(seeded) == 0 {
+		t.Fatal("no starter rules were seeded")
+	}
+	for _, r := range seeded {
+		if r.ID == "" || r.Name == "" {
+			t.Fatalf("seeded rule is incomplete: %+v", r)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "rules.json")); err != nil {
+		t.Fatal("seeded rules were not persisted")
+	}
+	// The seeded list covers the edge's management-port classification.
+	var management *Rule
+	for _, r := range seeded {
+		if r.Name == "Zarządzanie wystawione — Telnet/RDP/VNC/WinRM/Docker" {
+			management = r
+		}
+	}
+	if management == nil || !containsInt(management.Ports, 3389) || !containsInt(management.Ports, 23) {
+		t.Fatalf("management-port rule missing or wrong: %+v", management)
+	}
+	// Seeding happens once: an operator-edited list is never overwritten.
+	if err := rs.replace([]*Rule{{Name: "własna", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := openRules(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.list()) != 1 || reloaded.list()[0].Name != "własna" {
+		t.Fatal("operator's rules were overwritten by re-seeding")
+	}
+}
+
+// Gate reasons carry parameters (fail_open_missing_or_invalid_signal:kev),
+// so rule reasons match by substring, not exact equality.
+func TestReasonSubstringMatching(t *testing.T) {
+	rs := &ruleStore{rules: []*Rule{
+		{ID: "fo", Name: "fail-open", Enabled: true, Reasons: []string{"fail_open"}},
+		{ID: "esc", Name: "eskalacja", Enabled: true, Reasons: []string{"cascade_remote_escalate"}},
+	}}
+	c := ruleCase()
+	c.Reason = "fail_open_missing_or_invalid_signal:kev"
+	if got := rs.match(c); got == nil || got.ID != "fo" {
+		t.Fatalf("parametrized fail-open reason not matched: %+v", got)
+	}
+	c.Reason = "cascade_remote_escalate"
+	if got := rs.match(c); got == nil || got.ID != "esc" {
+		t.Fatalf("exact reason not matched: %+v", got)
+	}
+	c.Reason = "cascade_fast_below_threshold"
+	if got := rs.match(c); got != nil {
+		t.Fatalf("unrelated reason matched: %+v", got)
 	}
 }

@@ -1,0 +1,98 @@
+# Public demo: operator console behind a Cloudflare Tunnel. Nothing is
+# published on the host; the only way in is the tunnel (which Cloudflare
+# Access gates), the only way out is the console's own HTTPS clients
+# (Shodan/Censys/NVD/LLM). See README.md.
+#
+#   ./setup.sh                      # once: generates secrets/ and .env
+#   docker compose up -d            # console + cloudflared
+#   docker compose --profile lab up -d lab-relay   # + loopback relay for the lab sensor
+name: silent-demo
+
+services:
+  console:
+    image: ${SOTW_IMAGE_PREFIX:-ghcr.io/inner-savages/silence-on-the-wire}/console:${SOTW_TAG:-latest}
+    restart: unless-stopped
+    # Demo data + live feed: the synthetic fleet is seeded on an empty store,
+    # real events (POST /events, /logs) land next to it.
+    command: ["-demo", "-demo-fleet", "${DEMO_FLEET:-137}"]
+    environment:
+      ASI_ALLOW_REGISTRATION: ${ASI_ALLOW_REGISTRATION:-false}
+      ASI_CENTRAL_TOKEN: ${ASI_CENTRAL_TOKEN:?run ./setup.sh (or set ASI_CENTRAL_TOKEN)}
+      ASI_DATA_KEY_FILE: /run/secrets/data_key
+      ASI_ADMIN_LOGIN: ${ASI_ADMIN_LOGIN:-admin}
+      ASI_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      ASI_VIEWER_LOGIN: ${ASI_VIEWER_LOGIN:-}
+      ASI_VIEWER_PASSWORD_FILE: /run/secrets/viewer_password
+      # Third-party API keys: environment only, never in the repo or the image.
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      CENSYS_API_ID: ${CENSYS_API_ID:-}
+      CENSYS_API_SECRET: ${CENSYS_API_SECRET:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      ASI_AI_BASE_URL: ${ASI_AI_BASE_URL:-}
+      ASI_AI_API_KEY: ${ASI_AI_API_KEY:-}
+      ASI_AI_MODEL: ${ASI_AI_MODEL:-}
+    secrets: [data_key, admin_password, viewer_password]
+    volumes:
+      - console-data:/data
+    networks: [demo]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/18081 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q 200"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_TAG:-latest}
+    restart: unless-stopped
+    # Remotely-managed tunnel: the ingress rule (hostname -> http://console:18081)
+    # lives in the Cloudflare Zero Trust dashboard, not in this repo.
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    networks: [demo]
+    depends_on:
+      console: {condition: service_healthy}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+
+  # Lab only. The sensor runs with host networking and cannot resolve compose
+  # names, so this relay exposes console:18081 on the host's loopback ONLY
+  # (127.0.0.1), never on a LAN/public address.
+  lab-relay:
+    profiles: [lab]
+    image: alpine/socat:latest
+    restart: unless-stopped
+    command: ["TCP-LISTEN:18081,fork,reuseaddr", "TCP:console:18081"]
+    ports:
+      - "127.0.0.1:18081:18081"
+    networks: [demo]
+    depends_on: [console]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+
+networks:
+  demo:
+    driver: bridge
+    driver_opts:
+      # Fixed bridge name so the lab sensor can exclude it (-i 'br-*,!br-demo').
+      com.docker.network.bridge.name: br-demo
+    ipam:
+      config:
+        - subnet: ${DEMO_SUBNET:-172.29.0.0/24}
+
+secrets:
+  data_key:
+    file: ./secrets/data_key
+  admin_password:
+    file: ./secrets/admin_password
+  viewer_password:
+    file: ./secrets/viewer_password
+
+volumes:
+  console-data:

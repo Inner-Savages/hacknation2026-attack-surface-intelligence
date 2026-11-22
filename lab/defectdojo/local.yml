@@ -1,0 +1,13 @@
+# Overlay for the official DefectDojo docker-compose.yml: reachable only from
+# this machine and small enough for a laptop. See README.md.
+services:
+  nginx:
+    ports: !override
+      - "127.0.0.1:${DD_PORT:-18080}:8080"
+  uwsgi:
+    environment:
+      DD_UWSGI_NUM_OF_PROCESSES: "2"
+      DD_UWSGI_NUM_OF_THREADS: "2"
+  celeryworker:
+    environment:
+      DD_CELERY_WORKER_POOL_TYPE: solo

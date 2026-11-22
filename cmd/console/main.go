@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -24,10 +25,14 @@ func main() {
 	demo := flag.Bool("demo", false, "seed a synthetic fleet and cases when the store is empty")
 	fleet := flag.Int("demo-fleet", 137, "number of demo sensors to seed")
 	offlineTTL := flag.Duration("offline-ttl", 90*time.Second, "sensor silence after which the fleet view marks it offline")
-	operator := flag.String("operator", envOr("ASI_OPERATOR", "Janek Baumgart"), "name recorded for UI actions that do not pass an explicit actor")
+	operator := flag.String("operator", envOr("ASI_OPERATOR", "Janek Baumgart"), "name recorded for machine-side actions without a session")
 	aiAuto := flag.Bool("ai-auto", true, "automatically run AI analysis on new escalations when an AI provider is configured")
+	aiOperator := flag.Bool("ai-operator", envOr("ASI_AI_OPERATOR", "") == "true", "let the configured LLM act as an autonomous, fully audited operator")
 	flag.Parse()
 
+	if err := initAtRest(*dataDir); err != nil {
+		log.Fatalf("data encryption: %v", err)
+	}
 	store, err := openStore(*dataDir)
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -42,34 +47,106 @@ func main() {
 	store.OnAudit = func(e HistoryEntry, id string) {
 		feed.Append(e.Kind, "", e.Actor+": "+e.Text, nil)
 	}
-	ai := aiFromEnv()
+	userAuth, err := openAuth(*dataDir)
+	if err != nil {
+		log.Fatalf("open auth store: %v", err)
+	}
+	cfg, err := openSettings(*dataDir)
+	if err != nil {
+		log.Fatalf("open settings: %v", err)
+	}
+	rules, err := openRules(*dataDir)
+	if err != nil {
+		log.Fatalf("open rules: %v", err)
+	}
+	roleSt, err := openRoles(*dataDir)
+	if err != nil {
+		log.Fatalf("open roles: %v", err)
+	}
+	srv := &server{
+		roles: roleSt, audit: openAudit(*dataDir),
+		store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demoData: *demo, feed: feed,
+		operator: *operator, aiAuto: *aiAuto, aiOpDefault: *aiOperator, demoDefault: *demo,
+		auth: userAuth, settings: cfg, rules: rules,
+		registrationClosed: !envBool("ASI_ALLOW_REGISTRATION", true),
+	}
+	// Active verification loop: the trigger ships findings back to
+	// POST /findings (machine token, like /logs); the "scan" action asks the
+	// trigger for a targeted scan when its URL is configured.
+	srv.triggerURL = os.Getenv("ASI_TRIGGER_URL")
+	if srv.triggerToken = os.Getenv("ASI_TRIGGER_TOKEN"); srv.triggerToken == "" {
+		srv.triggerToken = os.Getenv("SOTW_WEBHOOK_TOKEN")
+	}
+	if err := seedAccounts(userAuth); err != nil {
+		log.Fatalf("seed accounts: %v", err)
+	}
+	if srv.registrationClosed {
+		log.Printf("self-registration disabled (ASI_ALLOW_REGISTRATION=false)")
+	}
+	// Ground truth: periodic active control scans of passively silent hosts,
+	// so the silent_stealth observability gap is measured, not invisible.
+	gt, err := newGroundTruth(*dataDir, store, feed, cfg, *operator)
+	if err != nil {
+		log.Fatalf("open host registry: %v", err)
+	}
+	srv.gt = gt
+	if srv.inv, err = openInventory(*dataDir); err != nil {
+		log.Fatalf("open inventory: %v", err)
+	}
+	// Inside/outside correlation: what Shodan/Censys see of the public IP,
+	// diffed against the passive registry (shadow IT, accidental exposure).
+	expo, err := newExposureCheck(*dataDir, store, feed, cfg, gt)
+	if err != nil {
+		log.Fatalf("open exposure state: %v", err)
+	}
+	srv.exposure = expo
+	// TLS certificate monitoring over the certs control scans capture:
+	// expiry 30/14/7, self-signed, CA changes, weak crypto.
+	tlsMon, err := newTLSMonitor(*dataDir, store, feed, cfg, gt)
+	if err != nil {
+		log.Fatalf("open tls state: %v", err)
+	}
+	srv.tlsMon = tlsMon
+	go func() {
+		for range time.Tick(time.Minute) {
+			gt.tick()
+			expo.tick()
+			tlsMon.tick()
+		}
+	}()
+	go func() {
+		for range time.Tick(5 * time.Minute) {
+			gt.flush()
+		}
+	}()
 	if *demo {
 		relightDemo(store)
 	}
 	store.markOffline(*offlineTTL)
 	go func() {
 		for range time.Tick(15 * time.Second) {
-			if *demo {
+			if srv.demoFeedOn() {
 				store.Heartbeat()
 			}
 			store.markOffline(*offlineTTL)
 		}
 	}()
 	if *demo {
-		startDemoLogs(feed, store)
+		startDemoLogs(feed, store, srv.demoFeedOn)
+		startDemoEscalations(store, srv.demoFeedOn, srv.triageNewCase)
+	}
+	// Operator mode enabled before a restart takes over the open backlog on
+	// boot, exactly like flipping the toggle at runtime. Rule mode does the
+	// same, synchronously — the engine is instant.
+	if srv.ruleModeOn() {
+		srv.applyRulesToOpen(100)
+	} else if srv.aiOperatorOn() {
+		go srv.backfillAIOperator(10)
 	}
 
 	sub, err := fs.Sub(staticAssets, "static")
 	if err != nil {
 		log.Fatal(err)
-	}
-	srv := &server{store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demo: *demo, feed: feed, ai: ai, aiAuto: *aiAuto, operator: *operator}
-	// Active verification loop: the trigger ships findings back to
-	// POST /findings; the console's scan action requests verification
-	// through the trigger when its URL is configured.
-	srv.triggerURL = os.Getenv("ASI_TRIGGER_URL")
-	if srv.triggerToken = os.Getenv("ASI_TRIGGER_TOKEN"); srv.triggerToken == "" {
-		srv.triggerToken = os.Getenv("SOTW_WEBHOOK_TOKEN")
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
@@ -80,8 +157,11 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	aiInfo := "disabled"
-	if ai != nil {
+	if ai := srv.aiClient(); ai != nil {
 		aiInfo = ai.modelName() + " @ " + ai.baseName()
+		if srv.aiOperatorOn() {
+			aiInfo += " (operator mode)"
+		}
 	}
 	fmt.Fprintf(os.Stderr, "operator console listening on %s (demo=%v, operator=%q, ai=%s)\n", *listen, *demo, *operator, aiInfo)
 	srvHTTP := &http.Server{
@@ -94,6 +174,17 @@ func main() {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+// envBool reads a boolean variable; unset or unparsable values give fallback.
+func envBool(key string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
 	}
 	return fallback
 }

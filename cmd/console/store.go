@@ -112,7 +112,7 @@ func openStore(dir string) (*Store, error) {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(dir, "cases", e.Name()))
+		b, err := rest.ReadFile(filepath.Join(dir, "cases", e.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -146,8 +146,38 @@ func (s *Store) recountSensors() {
 		sen.Counts = map[string]int{}
 	}
 	for _, c := range s.cases {
-		s.sensors[c.SensorID].Counts[c.Status]++
+		sen, ok := s.sensors[c.SensorID]
+		if !ok {
+			sen = &Sensor{ID: c.SensorID, FirstSeen: c.Received, LastSeen: c.Received, Counts: map[string]int{}}
+			s.sensors[c.SensorID] = sen
+		}
+		sen.Counts[c.Status]++
 	}
+}
+
+// PurgeDemo removes the synthetic demo content when the console switches to
+// live mode: seeded cases (event IDs carry the "demo-" prefix) are deleted
+// from memory and disk, and seeded fleet sensors are dropped from the
+// registry. Real cases and sensors (anything that arrived over the wire)
+// are untouched; the append-only audit log keeps the full history.
+func (s *Store) PurgeDemo(isDemoSensor func(string) bool) (casesRemoved, sensorsRemoved int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id := range s.cases {
+		if strings.HasPrefix(id, "demo-") {
+			delete(s.cases, id)
+			os.Remove(filepath.Join(s.dir, "cases", id+".json"))
+			casesRemoved++
+		}
+	}
+	for id := range s.sensors {
+		if isDemoSensor(id) {
+			delete(s.sensors, id)
+			sensorsRemoved++
+		}
+	}
+	s.recountSensors()
+	return casesRemoved, sensorsRemoved
 }
 
 // Heartbeat refreshes liveness for sensors currently marked online. The demo
@@ -202,20 +232,19 @@ func (s *Store) persistLocked(c *Case) error {
 		return err
 	}
 	final := filepath.Join(s.dir, "cases", c.EventID+".json")
-	tmp := final + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, final)
+	return rest.WriteFile(final, b, 0o600)
 }
 
 func (s *Store) auditLocked(e HistoryEntry, id string) {
-	f, err := os.OpenFile(s.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(s.logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	b, _ := json.Marshal(map[string]interface{}{"event_id": id, "entry": e})
+	if line, err := rest.SealLine(b, "audit.jsonl"); err == nil {
+		b = line
+	}
 	f.Write(append(b, '\n'))
 	f.Sync()
 	if s.OnAudit != nil {
@@ -248,11 +277,26 @@ func (s *Store) AddEscalation(c *Case) (created bool, err error) {
 	return true, nil
 }
 
+// Get returns a deep copy of the case, so readers never race with mutations
+// applied through mutate (e.g. the background AI operator).
 func (s *Store) Get(id string) (*Case, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.cases[id]
-	return c, ok
+	if !ok {
+		return nil, false
+	}
+	cp := copyCase(c)
+	return cp, true
+}
+
+func copyCase(c *Case) *Case {
+	cp := *c
+	cp.Notes = append([]Note{}, c.Notes...)
+	cp.History = append([]HistoryEntry{}, c.History...)
+	cp.Actions = append([]ActionRecord{}, c.Actions...)
+	cp.Envelope = append(json.RawMessage{}, c.Envelope...)
+	return &cp
 }
 
 func (s *Store) mutate(id string, fn func(c *Case) (HistoryEntry, error)) error {
@@ -291,7 +335,7 @@ func (s *Store) ListCases() []*Case {
 	defer s.mu.Unlock()
 	out := make([]*Case, 0, len(s.cases))
 	for _, v := range s.cases {
-		out = append(out, v)
+		out = append(out, copyCase(v))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Received.After(out[j].Received) })
 	return out
