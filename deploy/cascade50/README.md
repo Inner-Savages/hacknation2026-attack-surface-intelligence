@@ -2,8 +2,9 @@
 
 This package adds a Go edge gate alongside the existing sensor. It includes the
 calibrated Decision Tree and Gaussian Naive Bayes, the three real neural model
-checkpoints, tokenizers, runtime dependency locks, Docker builds, and a durable
-integration inbox. The sensor and scanner remain independent programs.
+checkpoints, tokenizers, runtime dependency locks, Docker builds, the operator
+web console, and a durable integration inbox. The sensor and scanner remain
+independent programs.
 
 ```text
 sensor -> append-only JSONL -> Go Tree + GNB rank mean
@@ -11,12 +12,16 @@ sensor -> append-only JSONL -> Go Tree + GNB rank mean
                                    | otherwise
                               Basal + Laya + Kev over HTTP
                                    | rank maximum
-                              durable outbox -> central HTTP endpoint
+                              durable outbox -> operator console
+                              (fleet view, case workflow, actions)
 ```
 
-The included `receive` command stores escalations for inspection. **It is an
-integration inbox, not a central analytical AI model.** An analytical service can
-consume this inbox or implement the same HTTP acknowledgement contract.
+The default pipeline delivers escalations to the **operator console**
+(`cmd/console`), where a human verifies cases from the whole sensor fleet. The
+included `receive` command remains available as a minimal integration inbox for
+external analytics endpoints — it is not a central analytical AI model. Any
+service implementing the same HTTP acknowledgement contract can take the
+console's place.
 
 ## Start from a clean checkout
 
@@ -39,22 +44,29 @@ model servers. `make cascade50-models` does only the download.
 The first build needs internet access for base images and pinned packages. Model
 loading uses local read-only files with Hugging Face offline mode enabled.
 
-`up` starts Basal, Laya, Kev and the integration inbox, then tests actual
-`/v1/systemone` responses and calibrated model identities. `smoke` runs ten
-synthetic events through real inference and checks that every escalation was
-acknowledged. Decisions are saved to `var/cascade50/smoke-decisions.jsonl`.
+`up` starts Basal, Laya, Kev and the operator console, then tests actual
+`/v1/systemone` responses and calibrated model identities, and waits for the
+console's health endpoint. `smoke` runs ten synthetic events through real
+inference and checks that every escalation was durably acknowledged by the
+console. Decisions are saved to `var/cascade50/smoke-decisions.jsonl`.
 Model APIs are published only on loopback: Basal 18000, Laya 18001, Kev 18008;
-the inbox is at `http://127.0.0.1:18080/events`.
+the console is at `http://127.0.0.1:18081` (intake `POST /events`).
+
+For the full system in one command — models, the gate following the sensor
+output, and escalations landing in the console — run:
+
+```sh
+make cascade50-demo   # then watch http://127.0.0.1:18081
+```
 
 ```sh
 docker compose -f deploy/cascade50/compose.yaml logs --tail=100
-docker compose -f deploy/cascade50/compose.yaml exec central sh -c 'ls /data/inbox'
 make cascade50-down
 ```
 
-Stopping the stack preserves both named volumes, including pending escalations
-and accepted envelopes. Do not remove the volumes until their contents have been
-processed or archived.
+Stopping the stack preserves all named volumes, including pending escalations,
+accepted envelopes and console cases. Do not remove the volumes until their
+contents have been processed or archived.
 
 ## Between the sensor and the trigger (optional stage)
 
@@ -192,6 +204,156 @@ This gate does not automatically launch active scans.
   baseline. Future updates require approved external feedback and recalibration.
 - `host_silent` describes lack of observed traffic; it does not establish that a
   host is inactive or compromised.
+
+## Operator console for the escalation fleet
+
+`cmd/console` is the human verification layer above the inbox: a durable case
+store plus a web UI where an operator triages escalations from the whole
+sensor fleet. It accepts the same delivery contract as the bundled receiver
+(`POST /events`, bearer token, `202` after durable write, deduplication by
+`event_id`), so the gate can deliver to it directly.
+
+```sh
+make console-up                 # demo fleet of 137 sensors on 127.0.0.1:18081
+# or point a real gate at it:
+./bin/edgegate gate -sensor-id site-a ... -central-url http://127.0.0.1:18081/events
+```
+
+The console is designed for **hundreds of edge sensors**: a fleet view with
+online/offline health, per-sensor alert counts and last contact, plus search
+and pagination; the alerts view filters by sensor, status, event type and
+free text. Sensor liveness comes from incoming escalations (a sensor silent
+longer than `-offline-ttl` is marked offline); the demo mode simulates
+heartbeats so the fleet stays realistically mixed.
+
+The operator workflow mirrors the escalation envelope:
+
+- **Verification**: set a status (do weryfikacji / potwierdzony / fałszywy
+  alarm / zamknięty), assign an owner, add case notes; every change lands in
+  an append-only audit log and in the case history.
+- **Evidence**: the full `cascadeEnvelope` — event, 28 features, per-model
+  scores with latencies, model errors, baseline anomaly, policy digest. The
+  UI states plainly that scores are a verification hint, not a verdict.
+- **Actions**: reinforce observation, order an active scan, rerun model
+  analysis, and isolate the host. Isolation is **two-step and always
+  human-confirmed**; a cut-off host can be restored to the network with the
+  single-step, audited *przywróć do sieci* action. In demo mode actions are
+  recorded in the audit trail but never touch traffic, exactly as the
+  banner says.
+
+The UI ships light and dark themes (light is the default) and is embedded in
+the binary — no build step, no JavaScript dependencies. Run it in Docker as
+the `console` service (port `127.0.0.1:18081`) with its own `console-data`
+volume; like the inbox, put it behind a TLS proxy and set `ASI_CENTRAL_TOKEN`
+before exposing it beyond loopback.
+
+### Live feed and AI-assisted triage
+
+The dashboard's **Logi live** tab streams everything the console sees:
+
+- raw sensor log lines, shipped to `POST /logs` in the passive sensor's own
+  NDJSON shape (`{"time","type","ip","port","proto","source"}`; one object, a
+  JSON array or NDJSON, bearer token, sensor id via `X-Sensor-Id`, `?sensor=`
+  or the `source` field). A sensor that ships logs is marked alive in the
+  fleet view;
+- console events mirrored from the audit log — new alerts, status changes,
+  assignments, notes, operator actions and AI analyses.
+
+The UI polls `GET /api/logs?since=<seq>` and renders the tail; the feed
+itself is a bounded in-memory ring (1000 entries), so it costs nothing when
+nobody watches.
+
+For triage support the console can ask an LLM to read the escalation
+envelope and the recent logs of the affected sensor. It speaks the
+**OpenAI-compatible chat-completions API**, so the provider is a deployment
+choice, not code: set `ASI_AI_API_KEY` (OpenAI by default) or point
+`ASI_AI_BASE_URL` at any compatible endpoint — including a local model
+served by Ollama, llama.cpp, vLLM or LM Studio, with no API key needed.
+`ASI_AI_MODEL` picks the model (default `gpt-4o-mini`). As AI moves on, a
+newer, smaller or more energy-efficient model is a configuration change,
+exactly like the `/v1/systemone` backends.
+
+Analyses run on demand (`POST /api/alerts/{id}/analysis`, the "Analiza AI"
+button in the case view) and automatically for every new escalation when a
+provider is configured (`-ai-auto`, on by default). Each analysis is stored
+as a case note and a history entry under the actor `AI · <model>` — advisory
+only; every executable decision stays with the human operator.
+
+### Accounts, configuration and the AI operator mode
+
+The console has its own operator accounts: the first registered account
+becomes the administrator, passwords are stored locally as
+PBKDF2-HMAC-SHA256 (no external identity dependency), and sessions are
+HttpOnly cookies. All operator APIs require a session; the machine intake
+(`POST /events`, `POST /logs`) keeps its bearer-token contract.
+
+The **Ustawienia** tab (admin) persists runtime configuration in
+`settings.json` and mirrors every change into the live feed:
+
+- **Demo/live switch** — turns the synthetic demo feed off; from then on the
+  dashboard shows only real events captured by the edge sensors. The banner
+  flips to "LIVE · tylko edge".
+- **AI provider** — base URL, model and API key are editable from the UI
+  (the key is write-only and never returned to the browser), so a local
+  model is a two-field change: address `http://<host>:11434/v1`, no key.
+- **AI operator mode** (`-ai-operator` / `ASI_AI_OPERATOR` or the toggle):
+  the configured LLM orchestrates the platform as an autonomous operator.
+  For every escalation it returns a structured verdict (threat level,
+  confidence, status, justification, action) and the console executes it
+  through the *same* audited mutations a human uses — statuses, notes,
+  observation, active scans and re-analysis all land in the case history,
+  the audit log and the live feed under the actor `AI · <model> (operator)`.
+  The one exception is host isolation: the AI may only **arm** it. A human
+  must confirm, so the most destructive action always keeps a person in the
+  loop.
+
+### Rule mode: deterministic triage without the model stack
+
+When the decision models digest too slowly (the Bayesian stage, the decision
+tree, the basal/laya/kev backends or the LLM operator all stall behind rate
+limits or heavy hardware), the console can drop to **hard rules** from the
+**Reguły** tab. With rule mode enabled every new escalation is triaged
+instantly against an ordered rule list — offline, with no model calls at
+all:
+
+- Rules are edited in the dashboard (admin) and persisted in `rules.json`.
+  Conditions: event types, ports, source host or CIDR, sensor, escalation
+  reasons, minimum score, unresolved flag. Empty conditions match
+  everything; the first matching rule wins.
+- Outcomes: set status, assign, attach a justification note, and run a
+  non-destructive action (observe, scan, re-analyze). Isolation follows the
+  same rule as everywhere else in the console — a rule may only **arm** it;
+  a human confirms.
+- Every rule decision is recorded through the same audited mutation as a
+  human or the AI operator, under the actor `silnik reguł · <nazwa>`, and
+  lands in the case history and the live feed (kind `REGUŁA`).
+- Switching rule mode on immediately re-triages the open backlog
+  (synchronously — the engine needs no provider round-trips), and the
+  **Zastosuj do otwartych spraw** button re-runs the rules on demand, e.g.
+  right after editing the list. Switching it off returns triage to the
+  model stack.
+
+On first run the engine seeds a starter list so it is useful out of the
+box. It ports the heuristics the edge bakes into its feature extractor
+(`internal/edge/aiml/model.go` — the `risky_port` and `management_port`
+classifications) and covers the gate's fail-open escalation path:
+
+1. **Fail-open — niekompletny sygnał modeli** (unresolved escalations →
+   status *do weryfikacji* + wzmocniona obserwacja).
+2. **C2/backdoor — porty 4444, 1337, 6667** (uzbraja odcięcie — potwierdza
+   człowiek).
+3. **Zarządzanie wystawione — Telnet/RDP/VNC/WinRM/Docker** (23, 3389,
+   5900, 5985, 2375 → skan + weryfikacja).
+4. **Wysoka ocena modeli ≥ 0.9** (skan + priorytetowa weryfikacja).
+5. **Porty ryzykowne przy ocenie ≥ 0.6 — FTP/SSH/SMB/proxy** (21, 22, 445,
+   8080, 8443, 8888 → weryfikacja).
+6. **Nowy host w sieci** (wzmocniona obserwacja).
+
+The seeded list is persisted like any operator edit and is never
+re-seeded over your changes.
+
+Rule mode and the AI operator are complementary: rules are the guaranteed,
+instant fallback path; the models add judgement when latency allows it.
 
 ## Model interchange and the System One standard
 

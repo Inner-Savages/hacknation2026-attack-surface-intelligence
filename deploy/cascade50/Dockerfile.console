@@ -1,0 +1,12 @@
+FROM golang:1.26.8 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY cmd/console ./cmd/console
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/console ./cmd/console
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && mkdir /data && chown 65532:65532 /data
+COPY --from=build /out/console /usr/local/bin/console
+USER 65532:65532
+WORKDIR /work
+ENTRYPOINT ["console"]

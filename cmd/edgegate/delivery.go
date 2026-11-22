@@ -47,8 +47,8 @@ func validateRemote(raw string) error {
 	if u.Scheme == "https" {
 		return nil
 	}
-	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" || u.Hostname() == "central") {
+	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1" || u.Hostname() == "central" || u.Hostname() == "console") {
 		return nil
 	}
-	return fmt.Errorf("central-url must be HTTPS or HTTP loopback")
+	return fmt.Errorf("central-url must be HTTPS, HTTP loopback, or a named local Compose service")
 }
