@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -205,6 +206,52 @@ func (a *auth) who(r *http.Request) *session {
 		return nil
 	}
 	return s
+}
+
+// list returns all accounts, admins first, for the operators panel.
+func (a *auth) list() []*user {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]*user, 0, len(a.users))
+	for _, u := range a.users {
+		out = append(out, u)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Admin != out[j].Admin {
+			return out[i].Admin
+		}
+		return out[i].Login < out[j].Login
+	})
+	return out
+}
+
+// setAdmin grants or revokes the admin flag. The last remaining admin cannot
+// be demoted — otherwise the console would be locked out of its settings.
+func (a *auth) setAdmin(login string, admin bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	u, ok := a.users[strings.ToLower(strings.TrimSpace(login))]
+	if !ok {
+		return fmt.Errorf("nie ma takiego operatora")
+	}
+	if !admin && u.Admin {
+		admins := 0
+		for _, x := range a.users {
+			if x.Admin {
+				admins++
+			}
+		}
+		if admins <= 1 {
+			return fmt.Errorf("nie można odebrać uprawnień ostatniemu administratorowi")
+		}
+	}
+	u.Admin = admin
+	for _, s := range a.sessions {
+		if s.Login == u.Login {
+			s.Admin = admin
+		}
+	}
+	return a.persistLocked()
 }
 
 func (a *auth) logout(token string) {

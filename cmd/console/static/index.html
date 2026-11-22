@@ -185,7 +185,6 @@ tbody tr:hover { background: var(--panel-2); }
   <div class="brand">
     <span class="logo">∿</span>
     <b>Silence on the Wire</b>
-    <span>defensywny monitoring sieci</span>
   </div>
   <nav class="tabs" style="padding:0">
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
@@ -664,11 +663,14 @@ function viewLogs() { renderLogs(); }
 async function viewSettings() {
   const app = $('#app');
   app.innerHTML = skeleton();
-  let cfg, ai;
+  let cfg, ai, users;
   try {
-    [cfg, ai] = await Promise.all([api('/api/config'), api('/api/ai/status')]);
+    [cfg, ai, users] = await Promise.all([
+      api('/api/config'), api('/api/ai/status'),
+      api('/api/users').catch(() => ({items: []})),
+    ]);
   } catch (e) {
-    app.innerHTML = `<div class="panel" style="padding:24px;margin-top:16px"><h4 style="margin-bottom:8px">USTAWIENIA</h4><p class="muted">Ustawienia są dostępne tylko dla administratora konsoli.</p></div>`;
+    app.innerHTML = `<div class="panel" style="padding:24px;margin-top:16px"><h4 style="margin-bottom:8px">USTAWIENIA</h4><p class="muted">Ustawienia są dostępne tylko dla administratora konsoli. Poproś administratora o nadanie uprawnień w panelu Operatorzy.</p></div>`;
     return;
   }
   state.config = cfg;
@@ -700,7 +702,23 @@ async function viewSettings() {
         <button class="btn primary" style="width:100%" onclick="saveAiConfig()">Zapisz konfigurację AI</button>
         <p class="fineprint" style="margin-top:10px">Stan: ${ai?.enabled ? `aktywny — ${esc(ai.model)} @ ${esc(ai.base_url)}${ai.operator ? ' · tryb operatora' : ai.auto ? ' · autoanaliza' : ''}` : 'nieskonfigurowany — analizy AI wyłączone'}</p>
       </div>
+      <div class="panel">
+        <h4>OPERATORZY</h4>
+        ${(users.items||[]).map(u => `
+          <div class="switch-row">
+            <div><b>${esc(u.name)}</b> <span class="muted mono" style="font-size:12px">${esc(u.login)}</span>
+              <div class="desc">${u.admin ? 'Administrator — pełny dostęp do ustawień' : 'Operator — praca na sprawach, bez ustawień'} · konto od ${fmtDateTime(u.created_at)}</div></div>
+            <button class="toggle ${u.admin?'on':''}" title="${u.admin?'Odbierz':'Nadaj'} uprawnienia administratora" onclick="toggleAdmin('${esc(u.login)}', ${!u.admin})"></button>
+          </div>`).join('') || '<p class="muted">Brak kont.</p>'}
+        <p class="fineprint" style="margin-top:10px">Ostatni administrator nie może utracić uprawnień. Zmiany są audytowane w dzienniku live.</p>
+      </div>
     </div>`;
+}
+async function toggleAdmin(login, grant) {
+  try {
+    await post(`/api/users/${encodeURIComponent(login)}/admin`, {admin: grant});
+    render();
+  } catch (e) { alert('Nie udało się zmienić uprawnień: ' + e.message); }
 }
 async function saveConfig(patch) {
   try {

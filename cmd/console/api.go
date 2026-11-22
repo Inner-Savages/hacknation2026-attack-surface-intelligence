@@ -125,6 +125,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/ai/status", s.needAuth(http.HandlerFunc(s.aiStatus)))
 	mux.Handle("GET /api/config", s.needAdmin(http.HandlerFunc(s.getConfig)))
 	mux.Handle("POST /api/config", s.needAdmin(http.HandlerFunc(s.setConfig)))
+	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
+	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	// Machine intake: bearer token, unchanged contract.
 	mux.HandleFunc("POST /events", s.intake)
 	mux.HandleFunc("POST /logs", s.intakeLogs)
@@ -200,6 +202,39 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]interface{}{"authenticated": false, "has_users": s.auth.hasUsers()})
+}
+
+// users lists operator accounts for the admin's settings panel.
+func (s *server) users(w http.ResponseWriter, r *http.Request) {
+	items := []map[string]interface{}{}
+	for _, u := range s.auth.list() {
+		items = append(items, map[string]interface{}{
+			"login": u.Login, "name": u.Name, "admin": u.Admin, "created_at": u.CreatedAt,
+		})
+	}
+	writeJSON(w, 200, map[string]interface{}{"items": items})
+}
+
+// setUserAdmin grants or revokes admin rights; the change is audited in the
+// live feed like any other operator-visible event.
+func (s *server) setUserAdmin(w http.ResponseWriter, r *http.Request) {
+	m := decodeBody(w, r)
+	login := r.PathValue("login")
+	grant := m["admin"] == "true"
+	if err := s.auth.setAdmin(login, grant); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	who := "operator"
+	if sess := s.auth.who(r); sess != nil {
+		who = sess.Name
+	}
+	verb := "odebrał(a) uprawnienia administratora operatorowi "
+	if grant {
+		verb = "nadał(a) uprawnienia administratora operatorowi "
+	}
+	s.feed.Append("status", "", who+": "+verb+login, nil)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
 }
 
 func setSessionCookie(w http.ResponseWriter, sess *session) {

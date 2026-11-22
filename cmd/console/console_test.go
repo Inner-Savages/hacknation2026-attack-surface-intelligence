@@ -517,6 +517,64 @@ func TestConfigFromUI(t *testing.T) {
 
 func a2Session(a *auth, u *user) string { return a.newSession(u).Token }
 
+// Admins manage operators: promotion works, demotion of the last admin is
+// refused, and changes apply to live sessions immediately.
+func TestOperatorAdminManagement(t *testing.T) {
+	s, _, tok := testServer(t) // janek is the seeded admin
+	h := s.routes()
+	u, err := s.auth.register("ania", "Anna Lis", "haslo123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aniaTok := a2Session(s.auth, u)
+	// Ania is not an admin: config is out of reach.
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/config", nil), aniaTok))
+	if w.Code != 403 {
+		t.Fatalf("expected 403 for non-admin, got %d", w.Code)
+	}
+	// The last admin cannot demote themselves.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/users/janek/admin", strings.NewReader(`{"admin":false}`)), tok))
+	if w.Code != 400 {
+		t.Fatalf("demoted the last admin: %d", w.Code)
+	}
+	// Promote Ania; her existing session gains the flag at once.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("POST", "/api/users/ania/admin", strings.NewReader(`{"admin":true}`)), tok))
+	if w.Code != 200 {
+		t.Fatalf("promotion failed: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/config", nil), aniaTok))
+	if w.Code != 200 {
+		t.Fatalf("promoted operator still locked out: %d", w.Code)
+	}
+	// The users list reflects the change and promotion persisted.
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, withAuth(httptest.NewRequest("GET", "/api/users", nil), tok))
+	var list struct {
+		Items []struct {
+			Login string `json:"login"`
+			Admin bool   `json:"admin"`
+		} `json:"items"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &list)
+	admins := 0
+	for _, it := range list.Items {
+		if it.Admin {
+			admins++
+		}
+	}
+	if admins != 2 {
+		t.Fatalf("expected 2 admins, got %d (%+v)", admins, list.Items)
+	}
+	a2, err := openAuth(s.store.dir)
+	if err != nil || !a2.users["ania"].Admin {
+		t.Fatal("admin flag was not persisted")
+	}
+}
+
 // The AI operator triages a case end to end: threat assessment, status,
 // note and a safe action — all audited. Isolation is only armed, never
 // executed by the AI.
