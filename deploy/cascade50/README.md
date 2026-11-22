@@ -84,9 +84,20 @@ sensor's `-webhook` at `http://127.0.0.1:8098/events` to use the gate, or at the
 trigger to skip it.
 
 - Events are scored in arrival order (the feature extractor keeps per-host state).
+- **Bounded memory at fleet scale.** The extractor's per-host state is kept on a
+  TTL (`-host-ttl`, default 24h in `serve`): a host silent for longer than the
+  window — measured in stream time, so replays stay deterministic — is evicted
+  and relearned from scratch when it returns. A sensor watching 10k+ IPs stays
+  flat instead of growing without limit. Per-host port sets are capped too.
+  `/healthz` reports `hosts_tracked` and `hosts_evicted`.
+- **Restarts keep the baseline.** The host table is checkpointed to
+  `-state-file` every `-state-save-interval` (default 5 min) and once more on
+  shutdown, then restored on boot (atomically, via tmp+rename; a corrupt file
+  is ignored, never fatal). Hosts already stale at save time are skipped on
+  load, exactly as the TTL sweep would have dropped them.
 - Escalations are forwarded as the original event plus `score`, `reason` and
-  `event_id`; they pass through the durable outbox and are deleted only after the
-  trigger answers 2xx, so a trigger restart loses nothing.
+  `event_id`; they pass through the durable outbox and are deleted only after
+  the trigger answers 2xx, so a trigger restart loses nothing.
 - `host_silent`, `service_silent` and `service_closed` are always forwarded
   (`reason: verification_passthrough`): a model must not hide a service that
   disappeared.
@@ -236,8 +247,10 @@ The operator workflow mirrors the escalation envelope:
   UI states plainly that scores are a verification hint, not a verdict.
 - **Actions**: reinforce observation, order an active scan, rerun model
   analysis, and isolate the host. Isolation is **two-step and always
-  human-confirmed**; in demo mode actions are recorded in the audit trail but
-  never touch traffic, exactly as the banner says.
+  human-confirmed**; a cut-off host can be restored to the network with the
+  single-step, audited *przywróć do sieci* action. In demo mode actions are
+  recorded in the audit trail but never touch traffic, exactly as the
+  banner says.
 
 The UI ships light and dark themes (light is the default) and is embedded in
 the binary — no build step, no JavaScript dependencies. Run it in Docker as
@@ -276,6 +289,174 @@ button in the case view) and automatically for every new escalation when a
 provider is configured (`-ai-auto`, on by default). Each analysis is stored
 as a case note and a history entry under the actor `AI · <model>` — advisory
 only; every executable decision stays with the human operator.
+
+### Accounts, configuration and the AI operator mode
+
+The console has its own operator accounts: the first registered account
+becomes the administrator, passwords are stored locally as
+PBKDF2-HMAC-SHA256 (no external identity dependency), and sessions are
+HttpOnly cookies. All operator APIs require a session; the machine intake
+(`POST /events`, `POST /logs`) keeps its bearer-token contract.
+
+The **Ustawienia** tab (admin) persists runtime configuration in
+`settings.json` and mirrors every change into the live feed:
+
+- **Demo/live switch** — turns the synthetic demo feed off; from then on the
+  dashboard shows only real events captured by the edge sensors. The banner
+  flips to "LIVE · tylko edge".
+- **AI provider** — base URL, model and API key are editable from the UI
+  (the key is write-only and never returned to the browser), so a local
+  model is a two-field change: address `http://<host>:11434/v1`, no key.
+- **AI operator mode** (`-ai-operator` / `ASI_AI_OPERATOR` or the toggle):
+  the configured LLM orchestrates the platform as an autonomous operator.
+  For every escalation it returns a structured verdict (threat level,
+  confidence, status, justification, action) and the console executes it
+  through the *same* audited mutations a human uses — statuses, notes,
+  observation, active scans and re-analysis all land in the case history,
+  the audit log and the live feed under the actor `AI · <model> (operator)`.
+  The one exception is host isolation: the AI may only **arm** it. A human
+  must confirm, so the most destructive action always keeps a person in the
+  loop.
+
+### Rule mode: deterministic triage without the model stack
+
+When the decision models digest too slowly (the Bayesian stage, the decision
+tree, the basal/laya/kev backends or the LLM operator all stall behind rate
+limits or heavy hardware), the console can drop to **hard rules** from the
+**Reguły** tab. With rule mode enabled every new escalation is triaged
+instantly against an ordered rule list — offline, with no model calls at
+all:
+
+- Rules are edited in the dashboard (admin) and persisted in `rules.json`.
+  Conditions: event types, ports, source host or CIDR, sensor, escalation
+  reasons, minimum score, unresolved flag. Empty conditions match
+  everything; the first matching rule wins.
+- Outcomes: set status, assign, attach a justification note, and run a
+  non-destructive action (observe, scan, re-analyze). Isolation follows the
+  same rule as everywhere else in the console — a rule may only **arm** it;
+  a human confirms.
+- Every rule decision is recorded through the same audited mutation as a
+  human or the AI operator, under the actor `silnik reguł · <nazwa>`, and
+  lands in the case history and the live feed (kind `REGUŁA`).
+- Switching rule mode on immediately re-triages the open backlog
+  (synchronously — the engine needs no provider round-trips), and the
+  **Zastosuj do otwartych spraw** button re-runs the rules on demand, e.g.
+  right after editing the list. Switching it off returns triage to the
+  model stack.
+
+### Ground truth: periodic control scans of silent hosts
+
+A host that stops speaking is indistinguishable from a host that is off —
+the passive feed alone cannot resolve the `silent_stealth` scenario, so
+without active ground truth that observability gap stays invisible. The
+console therefore keeps a durable **registry of passive observations** per
+host (`hosts.json`: services seen, last event, when the silence began) and
+runs **control scans** of the longest-silent hosts:
+
+- The scan is gentle and bounded: TCP connects to the host's known ports
+  plus a small common set (22, 80, 443, 445, 3306, 3389, 5432, 6379, 8080,
+  8443, 9200), a short banner read, nothing sent. Full-coverage port scans
+  remain the scanner's job; control scans only verify what the passive view
+  cannot.
+- The first scan of a host establishes the **ground-truth baseline** (open
+  ports and banners). Every later scan diffs against it: a new service, a
+  changed banner or a vanished one while the host is passively silent
+  escalates as a `ground_truth_change` case — an ordinary case, so the rule
+  engine and the AI operator triage it like any other alert. A verified
+  quiet host and an unreachable one are recorded as feed notes. Each drift
+  escalates once and then becomes the new baseline.
+- The policy lives in **Ustawienia → Skany kontrolne** (admin): enable/disable,
+  interval (default 6 h), the silence threshold that qualifies a host
+  (default 1 h) and the sample size per run (default 50 longest-silent
+  hosts). **Uruchom teraz** triggers a scan on demand; every run, verdict
+  and policy change is mirrored to the live feed, and the registry persists
+  across restarts. `GET /api/groundtruth` reports the policy, registry size
+  and the last run's summary.
+- **CVE enrichment**: banners captured by the control scan already name
+  products and versions (OpenSSH, Apache, nginx, MySQL, Redis, …), so each
+  escalation is looked up in NVD and ranked by EPSS, with CISA KEV flagged —
+  the case says *"this instance has CVE-2021-42013 with EPSS 0.97, actively
+  exploited"* instead of just *"something changed"*. The toggle lives in
+  **Ustawienia → Skany kontrolne** (default on), results are cached on disk,
+  and `NVD_API_KEY` raises the query quota. Lookup failures degrade to a
+  plain case, never to a failed scan.
+
+### Attack-surface map (topology + timeline)
+
+The alert list answers "what happened"; the **Mapa** tab answers "what does
+my network look like and how is it drifting". The same passive registry
+that feeds ground truth now also keeps a durable **topology journal**: every
+state transition the sensor reports (host appeared, host went silent, host
+came back, service appeared, service went quiet) plus every control-scan
+verdict is appended with the sensor's own timestamp and persisted in
+`hosts.json` (bounded: 5000 events / 30 days, oldest first out).
+
+- The graph groups hosts by `/24` and draws services as port chips on each
+  host; colors carry the state at the selected moment — active, passively
+  silent, changed under silence (control-scan finding), unreachable.
+- The **timeline scrubber** replays the journal: dragging it (or pressing
+  *Odtwórz*) rebuilds the network state at any moment, so a drift becomes
+  visible as it happened — what appeared, what changed, what vanished.
+  *Na żywo* jumps back to the live edge.
+- Clicking a host shows its state at the selected moment, sensor, first
+  and last contact, the latest scan verdict and its own event history.
+- `GET /api/map` returns the current per-host records plus the journal,
+  with optional `from`/`to` (RFC3339) bounds on the timeline.
+
+### Inside/outside correlation (Shodan/Censys)
+
+The sensor sees the network from within; internet-wide scanners see what of
+it faces the world. Neither view alone answers "is anything exposed that
+should not be" — the **Ekspozycja** tab diffs the two, which is where
+shadow IT and accidental exposures live:
+
+- The engine pulls the outside view of the public IP (Shodan, or Censys v2;
+  the IP is auto-detected or pinned in settings) on a schedule (default
+  6 h) and on demand, and diffs it against the passive registry. The first
+  run establishes the external baseline; escalations start with the first
+  diff, so enabling the feature does not flood the backlog.
+- Findings: **unmatched_external** (the internet sees a service no
+  internal host reports — shadow-IT candidate, score 0.9),
+  **exposed_internal** (`service_new` inside that is simultaneously
+  visible from the internet — the sharpest alert, 0.95), **new_external**
+  (appeared on the public IP since the last check, 0.85) and
+  **gone_external** (good news, reported not escalated). Escalations are
+  ordinary cases, and new exposures also land on the map's topology
+  timeline.
+- **Favicon cross-match**: Shodan reports favicon hashes as mmh3 — the
+  exact format the internal scanner computes (`internal/probe/mmh3.go`) —
+  so for every external HTTP service the engine asks "where else is this
+  favicon visible" and flags the same app exposed on other public IPs.
+- Configuration in **Ustawienia → Ekspozycja** (admin): provider, API key
+  (write-only; `SHODAN_API_KEY` or `CENSYS_API_ID` + `CENSYS_API_SECRET`
+  work as env fallbacks), optional public-IP override, interval. Default
+  OFF — the feature queries an external API, so it is opt-in. `GET
+  /api/exposure` reports the view and findings; `POST /api/exposure/run`
+  triggers a check. Everything is fail-soft: no key or no network is a
+  feed note, never a failed run.
+
+
+On first run the engine seeds a starter list so it is useful out of the
+box. It ports the heuristics the edge bakes into its feature extractor
+(`internal/edge/aiml/model.go` — the `risky_port` and `management_port`
+classifications) and covers the gate's fail-open escalation path:
+
+1. **Fail-open — niekompletny sygnał modeli** (unresolved escalations →
+   status *do weryfikacji* + wzmocniona obserwacja).
+2. **C2/backdoor — porty 4444, 1337, 6667** (uzbraja odcięcie — potwierdza
+   człowiek).
+3. **Zarządzanie wystawione — Telnet/RDP/VNC/WinRM/Docker** (23, 3389,
+   5900, 5985, 2375 → skan + weryfikacja).
+4. **Wysoka ocena modeli ≥ 0.9** (skan + priorytetowa weryfikacja).
+5. **Porty ryzykowne przy ocenie ≥ 0.6 — FTP/SSH/SMB/proxy** (21, 22, 445,
+   8080, 8443, 8888 → weryfikacja).
+6. **Nowy host w sieci** (wzmocniona obserwacja).
+
+The seeded list is persisted like any operator edit and is never
+re-seeded over your changes.
+
+Rule mode and the AI operator are complementary: rules are the guaranteed,
+instant fallback path; the models add judgement when latency allows it.
 
 ## Model interchange and the System One standard
 

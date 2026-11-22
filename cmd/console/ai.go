@@ -37,14 +37,11 @@ func aiFromEnv() *AIClient {
 	if model == "" {
 		model = "gpt-4o-mini"
 	}
-	return &AIClient{baseURL: base, apiKey: key, model: model, http: &http.Client{Timeout: 90 * time.Second}}
+	return newAIClient(base, key, model)
 }
 
-func (a *AIClient) status(auto bool) map[string]interface{} {
-	return map[string]interface{}{
-		"enabled": a != nil, "auto": auto && a != nil,
-		"model": a.modelName(), "base_url": a.baseName(),
-	}
+func newAIClient(base, key, model string) *AIClient {
+	return &AIClient{baseURL: strings.TrimRight(base, "/"), apiKey: key, model: model, http: &http.Client{Timeout: 90 * time.Second}}
 }
 
 func (a *AIClient) modelName() string {
@@ -97,8 +94,15 @@ func (a *AIClient) analyze(ctx context.Context, envelope json.RawMessage, logs [
 			},
 			{Role: "user", Content: sb.String()},
 		},
-		"temperature": 0.2,
+		// No explicit temperature: several current models accept only the
+		// provider default and reject the parameter outright.
 	})
+	return a.chat(ctx, reqBody)
+}
+
+// chat posts one prepared chat-completions request and returns the first
+// message's text.
+func (a *AIClient) chat(ctx context.Context, reqBody []byte) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", a.baseURL+"/chat/completions", bytes.NewReader(reqBody))
 	if err != nil {
 		return "", err

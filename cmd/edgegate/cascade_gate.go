@@ -182,6 +182,9 @@ type cascadeGateOptions struct {
 	Follow                                 bool
 	Timeout                                time.Duration
 	URLs                                   map[string]string
+	// HostTTL bounds the feature extractor's per-host memory in long-running
+	// (-follow) operation; <= 0 keeps hosts forever (one-shot default).
+	HostTTL time.Duration
 }
 
 func cascadeGate(o cascadeGateOptions) error {
@@ -235,6 +238,9 @@ func runCascadeStream(ctx context.Context, g *cascadeEngine, o cascadeGateOption
 	}
 	client := cascadeCentralClient()
 	x := aiml.NewExtractor()
+	if o.HostTTL > 0 {
+		x = aiml.NewExtractorWithTTL(o.HostTTL)
+	}
 	s := bufio.NewScanner(input)
 	s.Buffer(make([]byte, 65536), 4*1024*1024)
 	seen, forwarded, unresolved := 0, 0, 0
