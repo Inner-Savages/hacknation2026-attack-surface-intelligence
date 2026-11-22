@@ -2,6 +2,8 @@ FROM golang:1.26.8 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY cmd/console ./cmd/console
+# The console imports internal/ packages (vuln, result, riskscore, scan, ...).
+COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/console ./cmd/console
 FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
