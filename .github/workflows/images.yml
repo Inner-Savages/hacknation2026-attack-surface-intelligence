@@ -43,6 +43,14 @@ jobs:
         with:
           go-version-file: go.mod
       - run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - name: Check console inline JS syntax
+        # A broken merge once dropped a closing brace in the inline script and
+        # the whole console rendered dead. Parse the embedded JS before merge.
+        run: |
+          sed -n '/^<script>$/,/^<\/script>$/p' cmd/console/static/index.html | sed '1d;$d' > /tmp/console-inline.js
+          grep -q . /tmp/console-inline.js
+          node --check /tmp/console-inline.js
+          node --check cmd/console/static/rbac.js
       - run: go vet ./...
       - run: go test -coverprofile=coverage.out ./...
       - run: go test -race ./cmd/edgegate ./internal/edge/...

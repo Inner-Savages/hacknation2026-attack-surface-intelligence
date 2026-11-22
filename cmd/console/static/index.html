@@ -1119,6 +1119,7 @@ async function importFile() {
       : `Cele: dodano ${r.added}, duplikatów ${r.duplicates}, odrzucono ${r.rejected}.` + (r.problems?.length ? '\n' + r.problems.join('\n') : '');
   } catch (e) { inv.msg = 'Błąd importu: ' + e.message; }
   render();
+}
 // --- attack surface map ----------------------------------------------------
 // The map replays the topology journal: host/service appearances, silence,
 // control-scan verdicts. The scrubber moves time; the graph shows the state
