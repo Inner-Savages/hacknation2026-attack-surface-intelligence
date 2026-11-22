@@ -58,7 +58,7 @@ func main() {
 		learn       = flag.Duration("learn", 0, "build the baseline without emitting events for this long")
 		sweepEvery  = flag.Duration("sweep", 10*time.Second, "how often to check for silent hosts/services")
 		saveEvery   = flag.Duration("save", 30*time.Second, "how often to persist the baseline")
-		webhookURL  = flag.String("webhook", "", "also POST events (JSON arrays) to this URL, e.g. http://127.0.0.1:8099/events")
+		webhookURL  = flag.String("webhook", "", "also POST events (JSON arrays) to this URL, e.g. http://127.0.0.1:8099/events; several URLs separated by commas each get every event (same token)")
 		webhookTok  = flag.String("webhook-token", os.Getenv("SOTW_WEBHOOK_TOKEN"), "bearer token for -webhook (default $SOTW_WEBHOOK_TOKEN)")
 		name        = flag.String("name", "", "sensor name added to every event")
 	)
@@ -100,10 +100,13 @@ func main() {
 		}
 	}()
 
-	var hook *sensor.Webhook
-	if *webhookURL != "" {
-		hook = sensor.NewWebhook(*webhookURL, *webhookTok, 4096)
-		hook.Logf = log.Printf
+	var hooks []*sensor.Webhook
+	for _, u := range strings.Split(*webhookURL, ",") {
+		if u = strings.TrimSpace(u); u != "" {
+			h := sensor.NewWebhook(u, *webhookTok, 4096)
+			h.Logf = log.Printf
+			hooks = append(hooks, h)
+		}
 	}
 	var outMu sync.Mutex
 	enc := json.NewEncoder(os.Stdout)
@@ -114,8 +117,8 @@ func main() {
 		if err := enc.Encode(e); err != nil {
 			log.Printf("write event: %v", err)
 		}
-		if hook != nil {
-			hook.Send(e)
+		for _, h := range hooks {
+			h.Send(e)
 		}
 	}
 
@@ -148,12 +151,13 @@ func main() {
 		log.Printf("capturing on %s, watching %s, filter %q", strings.Join(names, ","), formatScope(scope), *filter)
 	}
 
-	hookDone := make(chan struct{})
-	if hook != nil {
-		go func() { hook.Run(ctx); close(hookDone) }()
+	var hookWG sync.WaitGroup
+	for _, h := range hooks {
+		hookWG.Add(1)
+		go func() { defer hookWG.Done(); h.Run(ctx) }()
+	}
+	if len(hooks) > 0 {
 		log.Printf("sending events to %s", *webhookURL)
-	} else {
-		close(hookDone)
 	}
 
 	var packets atomic.Int64
@@ -169,10 +173,10 @@ func main() {
 		}()
 	}
 	wg.Wait()
-	stop()     // replay ends on EOF without a signal
-	<-hookDone // last flush of queued events
-	if hook != nil {
-		log.Printf("webhook: %d events sent, %d dropped", hook.Sent(), hook.Dropped())
+	stop()        // replay ends on EOF without a signal
+	hookWG.Wait() // last flush of queued events
+	for _, h := range hooks {
+		log.Printf("webhook: %d events sent, %d dropped", h.Sent(), h.Dropped())
 	}
 
 	if live {
