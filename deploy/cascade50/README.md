@@ -361,6 +361,14 @@ runs **control scans** of the longest-silent hosts:
   and policy change is mirrored to the live feed, and the registry persists
   across restarts. `GET /api/groundtruth` reports the policy, registry size
   and the last run's summary.
+- **CVE enrichment**: banners captured by the control scan already name
+  products and versions (OpenSSH, Apache, nginx, MySQL, Redis, …), so each
+  escalation is looked up in NVD and ranked by EPSS, with CISA KEV flagged —
+  the case says *"this instance has CVE-2021-42013 with EPSS 0.97, actively
+  exploited"* instead of just *"something changed"*. The toggle lives in
+  **Ustawienia → Skany kontrolne** (default on), results are cached on disk,
+  and `NVD_API_KEY` raises the query quota. Lookup failures degrade to a
+  plain case, never to a failed scan.
 
 
 On first run the engine seeds a starter list so it is useful out of the

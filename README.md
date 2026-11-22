@@ -117,7 +117,23 @@ make build
 Useful flags: `-f targets.txt`, `-allow 10.0.0.0/16` (refuse targets outside), `-Pn`,
 `-sS` (needs `CAP_NET_RAW`), `-max-rate`, `-chunk` and `-parallel` (chunking),
 `-signatures extra.yaml` (custom signatures, see `internal/fingerprint/signatures/`),
-`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`).
+`-probe=false`, `-fingerprint-paths=false` (no extra GETs such as `/wp-login.php`),
+`-cve` (map detected product versions to CVEs, see below), `-cve-cache` (cache dir,
+default `var/cve-cache`).
+
+### CVE enrichment (NVD + EPSS)
+
+With `-cve` the scanner turns every detected product *and version* into a CPE
+(`internal/vuln`), queries NVD for the matching CVEs and ranks them by **EPSS**
+exploitation probability from FIRST, flagging anything on the **CISA KEV** list
+of actively exploited vulnerabilities. Each technology in the result then carries
+up to five entries like `CVE-2021-42013 — CVSS 9.8, EPSS 0.97, KEV`, so a diff
+stops being a list of changes and becomes a ranked risk picture. Lookups are
+fail-soft (no network, no enrichment) and cached on disk (NVD 7 days, EPSS/KEV
+24 h); `NVD_API_KEY` raises the anonymous NVD quota ~10x. Products and versions
+come from the fingerprint detections and from service banners (OpenSSH, Apache,
+nginx, IIS, MySQL/MariaDB, Redis, PostgreSQL, …); a detection without a version
+is deliberately skipped — a versionless lookup is noise, not intelligence.
 
 ### Docker images
 

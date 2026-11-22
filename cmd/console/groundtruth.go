@@ -30,6 +30,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Inner-Savages/silence-on-the-wire/internal/result"
+	"github.com/Inner-Savages/silence-on-the-wire/internal/vuln"
 )
 
 // defaultProbePorts are checked on every control scan in addition to the
@@ -295,11 +298,15 @@ type groundTruth struct {
 	settings *settings
 	operator string
 	dial     dialFunc
+	cveDir   string
 
 	mu      sync.Mutex
 	running bool
 	lastRun time.Time
 	lastSum string
+
+	cveOnce sync.Once
+	cve     *vuln.Client
 }
 
 func newGroundTruth(dir string, st *Store, feed *LiveFeed, cfg *settings, operator string) (*groundTruth, error) {
@@ -308,7 +315,21 @@ func newGroundTruth(dir string, st *Store, feed *LiveFeed, cfg *settings, operat
 		return nil, err
 	}
 	d := (&net.Dialer{Timeout: 2 * time.Second}).DialContext
-	return &groundTruth{registry: reg, store: st, feed: feed, settings: cfg, operator: operator, dial: d}, nil
+	return &groundTruth{registry: reg, store: st, feed: feed, settings: cfg, operator: operator, dial: d, cveDir: dir}, nil
+}
+
+// cveClient lazily builds the CVE enrichment client. A construction error
+// (e.g. an uncreatable cache dir) degrades to no enrichment, never to a
+// failed scan.
+func (g *groundTruth) cveClient() *vuln.Client {
+	g.cveOnce.Do(func() {
+		c, err := vuln.NewClient(filepath.Join(g.cveDir, "cve-cache"),
+			firstNonEmpty(os.Getenv("NVD_API_KEY"), os.Getenv("ASI_NVD_API_KEY")))
+		if err == nil {
+			g.cve = c
+		}
+	})
+	return g.cve
 }
 
 // gtConfig resolves the effective scan policy.
@@ -428,11 +449,25 @@ func (g *groundTruth) escalate(h *HostRecord, probe hostProbe) {
 		"Pasywna telemetria nie rozróżnia „host wyłączony” od „działa po cichu” (scenariusz silent_stealth) — dlatego skan był potrzebny jako ground truth.",
 		silentFor, strings.Join(probe.Changes, "; "))
 	eventID := "gt-" + strings.ReplaceAll(h.IP, ".", "-") + "-" + strconv.FormatInt(time.Now().Unix(), 36)
+	event := map[string]interface{}{
+		"time": time.Now().UTC().Format(time.RFC3339), "type": "ground_truth_change",
+		"ip": h.IP, "changes": probe.Changes, "silent_for": silentFor.String(),
+	}
+	// CVE enrichment: banners captured by the control scan already name
+	// products and versions; look them up in NVD and rank by EPSS so the
+	// case says "this instance has CVE-XXXX with EPSS 0.94" instead of
+	// just "something changed". Fail-soft: no network, no enrichment.
+	if vulns := g.enrichCVE(probe); len(vulns) > 0 {
+		event["vulns"] = vulns
+		top := vulns[0]
+		extra := fmt.Sprintf(" Najgroźniejsza znana podatność: %s (EPSS %.2f", top.CVE, top.EPSS)
+		if top.KEV {
+			extra += ", na liście CISA KEV — aktywnie eksploitowana"
+		}
+		reason += extra + ")."
+	}
 	envelope, _ := json.Marshal(map[string]interface{}{
-		"event": map[string]interface{}{
-			"time": time.Now().UTC().Format(time.RFC3339), "type": "ground_truth_change",
-			"ip": h.IP, "changes": probe.Changes, "silent_for": silentFor.String(),
-		},
+		"event":     event,
 		"event_id":  eventID,
 		"sensor_id": h.SensorID, "forward": true, "reason": reason,
 	})
@@ -447,6 +482,49 @@ func (g *groundTruth) escalate(h *HostRecord, probe hostProbe) {
 	if _, err := g.store.AddEscalation(c); err != nil {
 		g.feed.Append("alert", h.SensorID, "Ground truth: nie udało się zapisać sprawy dla "+h.IP+": "+err.Error(), nil)
 	}
+}
+
+// enrichCVE looks up the banners captured by the control scan in NVD and
+// ranks the findings by EPSS. Disabled in settings, missing client or
+// lookup errors all degrade to nil — a case without CVEs is still a case.
+func (g *groundTruth) enrichCVE(probe hostProbe) []result.Vuln {
+	snap := g.settings.snapshot()
+	if !cveLookupEffective(snap.CVELookup) {
+		return nil
+	}
+	client := g.cveClient()
+	if client == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	seen := map[string]bool{}
+	var out []result.Vuln
+	for _, banner := range probe.Open {
+		if banner == "" {
+			continue
+		}
+		vs, err := client.EnrichBanner(ctx, banner)
+		if err != nil {
+			continue
+		}
+		for _, v := range vs {
+			if !seen[v.CVE] {
+				seen[v.CVE] = true
+				out = append(out, v)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].EPSS != out[j].EPSS {
+			return out[i].EPSS > out[j].EPSS
+		}
+		return out[i].CVSS > out[j].CVSS
+	})
+	if len(out) > 3 {
+		out = out[:3]
+	}
+	return out
 }
 
 // status is the operator-facing snapshot for the API.

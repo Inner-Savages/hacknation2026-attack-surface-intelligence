@@ -826,6 +826,10 @@ async function viewSettings() {
           <input id="gtSilent" type="number" min="1" value="${cfg.gt_silent_min ?? 60}"></div>
         <div class="form-row"><label>PRÓBKA NA SKAN (hostów, najdłużej cichych)</label>
           <input id="gtSample" type="number" min="1" value="${cfg.gt_sample_size ?? 50}"></div>
+        <div class="switch-row">
+          <div><b>Wzbogacanie o CVE (NVD + EPSS)</b><div class="desc">Wykryte usługi i wersje są tłumaczone na CPE i odpytywane w NVD; sprawy dostają ranking realnego ryzyka wg EPSS z flagą CISA KEV. Odpytuje zewnętrzne API; wyniki są cache'owane na dysku. Zmienna NVD_API_KEY podnosi limit zapytań.</div></div>
+          <button class="toggle ${cfg.cve_lookup!==false?'on':''}" onclick="saveConfig({cve_lookup: ${cfg.cve_lookup===false}})"></button>
+        </div>
         <div style="display:flex;gap:8px">
           <button class="btn primary" style="flex:1" onclick="saveGtConfig()">Zapisz politykę</button>
           <button class="btn" style="flex:1" onclick="runGroundTruth()">Uruchom teraz</button>

@@ -517,7 +517,14 @@ func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"gt_interval_min":       gtInterval,
 		"gt_silent_min":         gtSilent,
 		"gt_sample_size":        gtSample,
+		"cve_lookup":            cveLookupEffective(snap.CVELookup),
 	})
+}
+
+// cveLookupEffective resolves the CVE enrichment toggle: default on unless
+// explicitly disabled in settings.
+func cveLookupEffective(override *bool) bool {
+	return override == nil || *override
 }
 
 func srcOf(b *bool) string {
@@ -587,6 +594,13 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.GTIntervalMin != nil || p.GTSilentMin != nil || p.GTSampleSize != nil {
 		changes = append(changes, "zmieniono politykę skanów kontrolnych")
+	}
+	if p.CVELookup != nil && (before.CVELookup == nil || *before.CVELookup != *p.CVELookup) {
+		if *p.CVELookup {
+			changes = append(changes, "włączono wyszukiwanie CVE (NVD + EPSS)")
+		} else {
+			changes = append(changes, "wyłączono wyszukiwanie CVE (NVD + EPSS)")
+		}
 	}
 	if p.AIBaseURL != nil && *p.AIBaseURL != before.AIBaseURL {
 		changes = append(changes, "zmieniono adres API AI")
