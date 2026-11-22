@@ -81,6 +81,12 @@ services:
     command: [-listen, "0.0.0.0:8080", -data-dir, /data/console, -demo]
     environment:
       ASI_CENTRAL_TOKEN: ${ASI_CENTRAL_TOKEN:-cascade50-lab}
+      ASI_OPERATOR: ${ASI_OPERATOR:-Janek Baumgart}
+      # Optional AI triage: any OpenAI-compatible chat API, hosted or local
+      # (Ollama, llama.cpp, vLLM, LM Studio). Leave empty to disable.
+      ASI_AI_BASE_URL: ${ASI_AI_BASE_URL:-}
+      ASI_AI_API_KEY: ${ASI_AI_API_KEY:-}
+      ASI_AI_MODEL: ${ASI_AI_MODEL:-}
     ports: ["127.0.0.1:18081:8080"]
     volumes: ["console-data:/data"]
   gate:

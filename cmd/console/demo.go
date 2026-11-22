@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 )
 
@@ -16,7 +17,7 @@ var demoTypes = []string{"service_changed", "service_new", "host_new", "host_sil
 
 var demoReasons = []string{"remote_rank_max", "fast_tree_gnb", "model_error", "timeout", "unexpected_model_identity", "fail_open_invalid_event"}
 
-var demoPeople = []string{"M. Kowalska", "A. Lis", "J. Nowak", "P. Zieliński"}
+var demoPeople = []string{"Janek Baumgart", "M. Kowalska", "A. Lis", "J. Nowak"}
 
 // seedDemo populates an empty store with a fleet of sensors and a realistic
 // spread of cases across statuses, sensors and event types.
@@ -72,6 +73,55 @@ func seedDemo(s *Store, fleetSize int) {
 			})
 		}
 	}
+}
+
+// relightDemo restores fleet liveness after a restart: sensors are rebuilt
+// from persisted cases without their online flags, so without this the whole
+// demo fleet would look offline and the live feed would stay silent. Roughly
+// the same ~92% share as the seed is brought back online.
+func relightDemo(store *Store) {
+	for i, sen := range store.ListSensors() {
+		if i%12 != 0 {
+			store.TouchSensor(sen.ID)
+		}
+	}
+}
+
+// startDemoLogs appends synthetic raw sensor log lines to the live feed every
+// few seconds, in the exact NDJSON shape the passive sensor ships.
+func startDemoLogs(feed *LiveFeed, store *Store) {
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	types := []string{"service_silent", "host_silent", "host_new", "service_new", "service_changed", "host_back", "service_back", "host_silent", "service_silent"}
+	ports := []int{22, 80, 443, 445, 3389, 5900, 8080}
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			if rng.Intn(3) == 0 {
+				continue // irregular cadence, like a real passive sensor
+			}
+			sensors := store.ListSensors()
+			online := []*Sensor{}
+			for _, sen := range sensors {
+				if sen.Online {
+					online = append(online, sen)
+				}
+			}
+			if len(online) == 0 {
+				continue
+			}
+			sen := online[rng.Intn(len(online))]
+			typ := types[rng.Intn(len(types))]
+			l := sensorLog{
+				Time: time.Now().Format(time.RFC3339), Type: typ,
+				IP: fmt.Sprintf("172.28.%d.%d", rng.Intn(3), 1+rng.Intn(250)), Source: "passive",
+			}
+			if strings.HasPrefix(typ, "service") {
+				l.Port, l.Proto = ports[rng.Intn(len(ports))], "tcp"
+			}
+			raw, _ := json.Marshal(l)
+			feed.Append("sensor", sen.ID, l.line(), raw)
+			store.TouchSensor(sen.ID)
+		}
+	}()
 }
 
 func demoEnvelope(sensor, typ, ip string, port int, score float64, reason string, unresolved bool, at time.Time) map[string]interface{} {

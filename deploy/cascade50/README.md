@@ -245,6 +245,38 @@ the `console` service (port `127.0.0.1:18081`) with its own `console-data`
 volume; like the inbox, put it behind a TLS proxy and set `ASI_CENTRAL_TOKEN`
 before exposing it beyond loopback.
 
+### Live feed and AI-assisted triage
+
+The dashboard's **Logi live** tab streams everything the console sees:
+
+- raw sensor log lines, shipped to `POST /logs` in the passive sensor's own
+  NDJSON shape (`{"time","type","ip","port","proto","source"}`; one object, a
+  JSON array or NDJSON, bearer token, sensor id via `X-Sensor-Id`, `?sensor=`
+  or the `source` field). A sensor that ships logs is marked alive in the
+  fleet view;
+- console events mirrored from the audit log — new alerts, status changes,
+  assignments, notes, operator actions and AI analyses.
+
+The UI polls `GET /api/logs?since=<seq>` and renders the tail; the feed
+itself is a bounded in-memory ring (1000 entries), so it costs nothing when
+nobody watches.
+
+For triage support the console can ask an LLM to read the escalation
+envelope and the recent logs of the affected sensor. It speaks the
+**OpenAI-compatible chat-completions API**, so the provider is a deployment
+choice, not code: set `ASI_AI_API_KEY` (OpenAI by default) or point
+`ASI_AI_BASE_URL` at any compatible endpoint — including a local model
+served by Ollama, llama.cpp, vLLM or LM Studio, with no API key needed.
+`ASI_AI_MODEL` picks the model (default `gpt-4o-mini`). As AI moves on, a
+newer, smaller or more energy-efficient model is a configuration change,
+exactly like the `/v1/systemone` backends.
+
+Analyses run on demand (`POST /api/alerts/{id}/analysis`, the "Analiza AI"
+button in the case view) and automatically for every new escalation when a
+provider is configured (`-ai-auto`, on by default). Each analysis is stored
+as a case note and a history entry under the actor `AI · <model>` — advisory
+only; every executable decision stays with the human operator.
+
 ## Model interchange and the System One standard
 
 All three neural backends speak one vendor-neutral wire protocol,

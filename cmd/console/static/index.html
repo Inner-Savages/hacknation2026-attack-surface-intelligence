@@ -131,6 +131,26 @@ tbody tr:hover { background: var(--panel-2); }
 .loading-line { padding: 24px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
 .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.feed-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0 12px; }
+.feed { max-height: 60vh; overflow-y: auto; padding: 6px 0; }
+.feed-line { display: flex; gap: 10px; padding: 5px 14px; font-family: var(--mono); font-size: 12.5px; border-bottom: 1px solid var(--border); align-items: baseline; }
+.feed-line:last-child { border-bottom: none; }
+.feed-line.fresh { animation: flash 1.2s ease-out; }
+@keyframes flash { 0% { background: var(--accent-soft); } 100% { background: transparent; } }
+.feed-time { color: var(--faint); white-space: nowrap; }
+.feed-kind { flex-shrink: 0; width: 96px; text-align: center; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; }
+.feed-kind.sensor { background: var(--info-soft); color: var(--info); }
+.feed-kind.alert { background: var(--danger-soft); color: var(--danger); }
+.feed-kind.status, .feed-kind.assign { background: var(--warn-soft); color: var(--warn); }
+.feed-kind.note { background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
+.feed-kind.action { background: var(--accent-soft); color: var(--accent-text); }
+.feed-kind.ai { background: var(--accent-soft); color: var(--accent-text); border: 1px dashed var(--accent); }
+.feed-sensor { color: var(--muted); white-space: nowrap; }
+.feed-text { word-break: break-all; }
+
+.analysis-box { background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; margin: 10px 0; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.analysis-meta { font-size: 11px; color: var(--faint); margin-top: 8px; font-family: var(--mono); white-space: normal; }
 </style>
 </head>
 <body>
@@ -142,6 +162,7 @@ tbody tr:hover { background: var(--panel-2); }
   </div>
   <nav class="tabs" style="padding:0">
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
+    <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
   </nav>
   <div class="spacer"></div>
@@ -149,7 +170,7 @@ tbody tr:hover { background: var(--panel-2); }
   <span class="demo-badge" id="demoBadge" hidden>DANE DEMO</span>
   <span class="pill" id="sensorPill"><span class="dot gray"></span> Sensor: …</span>
   <span class="clock" id="clock">akt. --:--:--</span>
-  <div class="user"><span class="avatar">MK</span> M. Kowalska</div>
+  <div class="user"><span class="avatar">JB</span> Janek Baumgart</div>
 </header>
 
 <main class="page" id="app"></main>
@@ -186,14 +207,15 @@ themeBtn.onclick = () => applyTheme(document.documentElement.dataset.theme === '
 
 // --- state -----------------------------------------------------------------
 const state = {
-  sensors: [], summary: null,
+  sensors: [], summary: null, ai: null,
   alerts: {items: [], total: 0, page: 1, per_page: 20},
   filters: {q: '', sensor: '', type: '', status: ''},
   sensorFilters: {q: '', status: ''},
   sensorPage: 1,
+  logs: {items: [], lastSeq: 0, paused: false, sensor: ''},
   loading: true, sensorOnline: null, error: null,
 };
-const ACTOR = 'M. Kowalska';
+const ACTOR = 'Janek Baumgart';
 
 function go(hash) { location.hash = hash; }
 window.addEventListener('hashchange', render);
@@ -201,11 +223,13 @@ window.addEventListener('hashchange', render);
 // --- data loading ----------------------------------------------------------
 async function refresh() {
   try {
-    const [summary, sensors] = await Promise.all([
+    const [summary, sensors, ai] = await Promise.all([
       api('/api/summary'), api('/api/sensors?per_page=200'),
+      api('/api/ai/status').catch(() => null),
     ]);
     state.summary = summary;
     state.sensors = sensors.items;
+    state.ai = ai;
     state.sensorOnline = summary.sensors.offline === 0 ? true : (summary.sensors.online > 0 ? 'partial' : false);
     $('#demoBadge').hidden = !summary.demo;
     updatePill();
@@ -327,6 +351,8 @@ async function viewAlert(id) {
   const scores = env.systemone_scores || {};
   const feats = env.features || [];
   const pending = d.pending_action === 'isolate';
+  const aiNotes = (d.notes||[]).filter(n => (n.actor||'').startsWith('AI ·'));
+  const ai = state.ai;
   const FEATURE_NAMES = ["host_new","host_silent","host_back","service_new","service_changed","service_closed","service_silent","service_back","risky_port","management_port","wellknown_port","has_banner","unusual_banner","changed_fingerprint","old_closed","gap_log_seconds","recent_count","recent_new_services","recent_changes","recent_silent","recent_returns","recent_distinct_ports","host_seen_before","service_event","hour_sin","hour_cos","repeated_port","previous_silent"];
 
   app.innerHTML = `
@@ -368,13 +394,26 @@ async function viewAlert(id) {
           <div class="history">
             ${(d.history||[]).map(h => `
               <div class="hrow">
-                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
+                <span class="hdot dot ${h.kind==='alert'?'red':h.kind==='ai'?'green':h.kind==='note'?'orange':h.kind==='action'?'green':'gray'}"></span>
                 <div><div>${esc(h.text)}</div><div class="hmeta">${fmtDateTime(h.at)} · ${esc(h.actor)}</div></div>
               </div>`).join('')}
           </div>
         </div>
       </div>
       <div>
+        <div class="panel" style="margin-bottom:16px">
+          <h4>ANALIZA AI <span class="muted" style="font-weight:400;letter-spacing:0">${ai?.enabled ? esc(ai.model) + (ai.auto ? ' · autoanaliza nowych eskalacji' : '') : '· nie skonfigurowana'}</span></h4>
+          ${ai?.enabled ? `
+            ${aiNotes.length ? aiNotes.map(n => `
+              <div class="analysis-box">${esc(n.text)}
+                <div class="analysis-meta">${fmtDateTime(n.at)} · ${esc(n.actor)}</div>
+              </div>`).join('') : '<p class="muted" style="font-size:13px">Brak analizy dla tej sprawy. Uruchom ją ręcznie albo poczekaj na autoanalizę nowych eskalacji.</p>'}
+            <button class="btn primary" style="width:100%;margin-top:6px" id="aiBtn" onclick="runAnalysis('${c.event_id}')">🤖 ${aiNotes.length ? 'Ponów analizę AI' : 'Uruchom analizę AI'}</button>
+            <p class="fineprint">Model analizuje kopertę eskalacji i ostatnie logi sensora. Analiza ma charakter doradczy — decyzję podejmuje operator. Dostawcę zmienisz zmiennymi ASI_AI_BASE_URL / ASI_AI_MODEL (działa z API kompatybilnym z OpenAI, także lokalnym).</p>
+          ` : `
+            <p class="muted" style="font-size:13px">Analiza AI jest wyłączona. Ustaw <code>ASI_AI_API_KEY</code> (i opcjonalnie <code>ASI_AI_BASE_URL</code> / <code>ASI_AI_MODEL</code>) — obsługiwane jest każde API kompatybilne z OpenAI, również lokalny model.</p>
+          `}
+        </div>
         <div class="panel">
           <h4>WERYFIKACJA</h4>
           <dl class="kv">
@@ -410,6 +449,16 @@ async function addNote(id) {
 async function runAction(id, action) {
   const armed = action === 'isolate' && document.getElementById('isolateBtn')?.classList.contains('armed');
   await post(`/api/alerts/${id}/actions`, {action, actor: ACTOR, confirm: armed});
+  render();
+}
+async function runAnalysis(id) {
+  const btn = document.getElementById('aiBtn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:-3px"></span> Analizuję logi…'; }
+  try {
+    await post(`/api/alerts/${id}/analysis`, {actor: ACTOR});
+  } catch (e) {
+    alert('Analiza AI nie powiodła się: ' + e.message);
+  }
   render();
 }
 
@@ -456,20 +505,75 @@ async function viewSensors() {
 }
 function gotoSensors(p) { state.sensorPage = p; render(); }
 
+// --- live logs -------------------------------------------------------------
+const KIND_LABEL = {sensor:'SENSOR', alert:'ALERT', status:'STATUS', assign:'PRZYPISANIE', note:'NOTATKA', action:'AKCJA', ai:'AI'};
+async function pollLogs() {
+  const l = state.logs;
+  if (l.paused) return;
+  try {
+    const data = await api('/api/logs?since=' + l.lastSeq + '&limit=200');
+    if (data.items.length) {
+      l.items.push(...data.items.map(e => ({...e, fresh: true})));
+      if (l.items.length > 400) l.items = l.items.slice(-400);
+      l.lastSeq = data.last_seq;
+      if (location.hash.startsWith('#/logi')) renderLogs();
+    } else {
+      l.lastSeq = data.last_seq;
+    }
+  } catch (e) { /* feed is best-effort; next tick retries */ }
+}
+function renderLogs() {
+  const l = state.logs;
+  const app = $('#app');
+  const items = l.sensor ? l.items.filter(e => e.sensor === l.sensor) : l.items;
+  const sensorOptions = [...new Set(l.items.map(e => e.sensor).filter(Boolean))].sort()
+    .map(s => `<option value="${esc(s)}" ${l.sensor===s?'selected':''}>${esc(s)}</option>`).join('');
+  const ai = state.ai;
+  app.innerHTML = `
+    <div class="feed-toolbar">
+      <button class="btn" onclick="state.logs.paused=!state.logs.paused;renderLogs()">${l.paused ? '▶ Wznów' : '⏸ Wstrzymaj'}</button>
+      <select onchange="state.logs.sensor=this.value;renderLogs()">
+        <option value="">Wszystkie sensory</option>${sensorOptions}
+      </select>
+      <button class="btn" onclick="state.logs.items=[];state.logs.lastSeq=0;pollLogs().then(renderLogs)">Odśwież od początku</button>
+      <span class="pill"><span class="dot ${l.paused?'orange':'green'}"></span> ${l.paused ? 'wstrzymane' : 'na żywo'} · ${items.length} wpisów</span>
+      ${ai ? `<span class="pill" title="Dostawca: ${esc(ai.base_url||'—')}"><span class="dot ${ai.enabled?'green':'gray'}"></span> AI: ${ai.enabled ? esc(ai.model) + (ai.auto ? ' · autoanaliza' : '') : 'wyłączone'}</span>` : ''}
+    </div>
+    <div class="panel feed" id="feedBox">
+      ${items.length === 0 ? '<div class="loading-line"><span class="spinner"></span> Oczekiwanie na logi z sensorów…</div>' :
+        items.map(e => `
+          <div class="feed-line${e.fresh?' fresh':''}">
+            <span class="feed-time">${fmtTime(e.at)}</span>
+            <span class="feed-kind ${esc(e.kind)}">${KIND_LABEL[e.kind]||esc(e.kind)}</span>
+            ${e.sensor ? `<span class="feed-sensor">${esc(e.sensor)}</span>` : ''}
+            <span class="feed-text">${esc(e.text)}</span>
+          </div>`).join('')}
+    </div>
+    <p class="fineprint" style="margin-top:10px">Logi sensorów trafiają tu przez <code>POST /logs</code> (format NDJSON sensora pasywnego). Zdarzenia konsoli — alerty, zmiany statusu, akcje operatora i analizy AI — są doklejane automatycznie z dziennika audytu.</p>`;
+  const box = $('#feedBox');
+  if (box && !l.paused) box.scrollTop = box.scrollHeight;
+  l.items.forEach(e => delete e.fresh);
+}
+function viewLogs() { renderLogs(); }
+
 // --- router ----------------------------------------------------------------
 async function render() {
   const h = location.hash || '#/alerty';
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
-    h.startsWith('#/sensory') ? t.dataset.nav === 'sensory' : t.dataset.nav === 'alerty'));
+    h.startsWith('#/sensory') ? t.dataset.nav === 'sensory'
+    : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
+    : t.dataset.nav === 'alerty'));
   if (h.startsWith('#/sensory')) return viewSensors();
+  if (h.startsWith('#/logi')) return viewLogs();
   if (h.startsWith('#/alerta/')) return viewAlert(decodeURIComponent(h.slice(9)));
   return viewAlerts();
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { await refresh(); if (!location.hash.startsWith('#/alerta/')) render(); }, 10000);
+setInterval(async () => { await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi')) render(); }, 10000);
+setInterval(pollLogs, 3000);
 
-(async () => { await refresh(); render(); })();
+(async () => { await refresh(); await pollLogs(); render(); })();
 </script>
 </body>
 </html>

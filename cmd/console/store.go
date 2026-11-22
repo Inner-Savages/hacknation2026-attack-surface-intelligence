@@ -92,6 +92,11 @@ type Store struct {
 	mu      sync.Mutex
 	cases   map[string]*Case
 	sensors map[string]*Sensor
+
+	// OnAudit, when set, is invoked for every audit entry (case creation,
+	// status changes, notes, actions, AI analyses). It runs while the store
+	// lock is held, so it must not call back into the store.
+	OnAudit func(entry HistoryEntry, eventID string)
 }
 
 func openStore(dir string) (*Store, error) {
@@ -167,6 +172,21 @@ func (s *Store) markOffline(ttl time.Duration) {
 	}
 }
 
+// TouchSensor records a sign of life from a sensor (a log line or any other
+// heartbeat) and marks it online.
+func (s *Store) TouchSensor(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sen, ok := s.sensors[id]
+	if !ok {
+		now := time.Now()
+		sen = &Sensor{ID: id, FirstSeen: now, Counts: map[string]int{}}
+		s.sensors[id] = sen
+	}
+	sen.LastSeen = time.Now()
+	sen.Online = true
+}
+
 // RegisterSensor records a sensor that has not escalated anything yet.
 func (s *Store) RegisterSensor(id string, seen time.Time, online bool) {
 	s.mu.Lock()
@@ -198,6 +218,9 @@ func (s *Store) auditLocked(e HistoryEntry, id string) {
 	b, _ := json.Marshal(map[string]interface{}{"event_id": id, "entry": e})
 	f.Write(append(b, '\n'))
 	f.Sync()
+	if s.OnAudit != nil {
+		s.OnAudit(e, id)
+	}
 }
 
 // AddEscalation stores a new escalation envelope; duplicate event IDs are

@@ -24,6 +24,8 @@ func main() {
 	demo := flag.Bool("demo", false, "seed a synthetic fleet and cases when the store is empty")
 	fleet := flag.Int("demo-fleet", 137, "number of demo sensors to seed")
 	offlineTTL := flag.Duration("offline-ttl", 90*time.Second, "sensor silence after which the fleet view marks it offline")
+	operator := flag.String("operator", envOr("ASI_OPERATOR", "Janek Baumgart"), "name recorded for UI actions that do not pass an explicit actor")
+	aiAuto := flag.Bool("ai-auto", true, "automatically run AI analysis on new escalations when an AI provider is configured")
 	flag.Parse()
 
 	store, err := openStore(*dataDir)
@@ -34,6 +36,16 @@ func main() {
 		seedDemo(store, *fleet)
 		log.Printf("demo fleet seeded: %d sensors, %d cases", *fleet, len(store.ListCases()))
 	}
+	feed := newLiveFeed(1000)
+	// Every audited case event (alert, status, note, action, AI analysis)
+	// also appears in the dashboard's live feed.
+	store.OnAudit = func(e HistoryEntry, id string) {
+		feed.Append(e.Kind, "", e.Actor+": "+e.Text, nil)
+	}
+	ai := aiFromEnv()
+	if *demo {
+		relightDemo(store)
+	}
 	store.markOffline(*offlineTTL)
 	go func() {
 		for range time.Tick(15 * time.Second) {
@@ -43,22 +55,37 @@ func main() {
 			store.markOffline(*offlineTTL)
 		}
 	}()
+	if *demo {
+		startDemoLogs(feed, store)
+	}
 
 	sub, err := fs.Sub(staticAssets, "static")
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv := &server{store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demo: *demo}
+	srv := &server{store: store, token: os.Getenv("ASI_CENTRAL_TOKEN"), demo: *demo, feed: feed, ai: ai, aiAuto: *aiAuto, operator: *operator}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
 	mux.Handle("/api/", srv.routes())
 	mux.Handle("/events", srv.routes())
+	mux.Handle("/logs", srv.routes())
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
-	fmt.Fprintf(os.Stderr, "operator console listening on %s (demo=%v)\n", *listen, *demo)
+	aiInfo := "disabled"
+	if ai != nil {
+		aiInfo = ai.modelName() + " @ " + ai.baseName()
+	}
+	fmt.Fprintf(os.Stderr, "operator console listening on %s (demo=%v, operator=%q, ai=%s)\n", *listen, *demo, *operator, aiInfo)
 	srvHTTP := &http.Server{
 		Addr: *listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 	}
 	log.Fatal(srvHTTP.ListenAndServe())
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
