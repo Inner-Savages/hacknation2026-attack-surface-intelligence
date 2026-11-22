@@ -1,8 +1,10 @@
 package trigger
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,5 +211,63 @@ func TestVerifiedAliveStopsSilenceLoop(t *testing.T) {
 	}
 	if ok, _ := p.Offer(ev(sensor.HostSilent, "172.20.0.33", 0), at(10+31*60)); !ok {
 		t.Fatal("after the backoff silence is checked again")
+	}
+}
+
+func scored(typ sensor.EventType, ip string, port uint16, score float64, reason string) sensor.Event {
+	e := ev(typ, ip, port)
+	e.Score, e.Reason = score, reason
+	return e
+}
+
+// edgegate contract: "score"/"reason" are optional extra fields of the event.
+func TestScoreFieldsDecodeAndAreOptional(t *testing.T) {
+	var events []sensor.Event
+	body := `[{"type":"host_new","ip":"172.20.0.8","source":"passive","score":0.87,"reason":"cascade escalation"},
+	          {"type":"host_silent","ip":"172.20.0.9","source":"passive"}]`
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatal(err)
+	}
+	if events[0].Score != 0.87 || events[0].Reason != "cascade escalation" || events[1].Score != 0 || events[1].Reason != "" {
+		t.Fatalf("decoded: %+v", events)
+	}
+	out, _ := json.Marshal(ev(sensor.HostNew, "172.20.0.8", 0))
+	if strings.Contains(string(out), "score") || strings.Contains(string(out), "reason") {
+		t.Fatalf("unrated events must not carry the fields: %s", out)
+	}
+}
+
+func TestJobKeepsHighestScore(t *testing.T) {
+	p := policy()
+	p.Offer(scored(sensor.ServiceSilent, "172.20.0.5", 80, 0.3, "verification passthrough"), at(0))
+	p.Offer(scored(sensor.ServiceBack, "172.20.0.5", 80, 0.9, "cascade escalation"), at(1))
+	p.Offer(scored(sensor.ServiceChanged, "172.20.0.5", 80, 0.5, "banner"), at(2))
+	j := p.Take(at(10), 10)[0]
+	if j.Score != 0.9 || j.Reason != "cascade escalation" {
+		t.Fatalf("score %v reason %q", j.Score, j.Reason)
+	}
+	// Events joining a pending host scan are rated too.
+	p.Offer(ev(sensor.HostNew, "172.20.0.40", 0), at(20))
+	p.Offer(scored(sensor.ServiceNew, "172.20.0.40", 80, 0.7, "new web service"), at(21))
+	if hj := p.Take(at(30), 10)[0]; hj.Score != 0.7 || hj.Kind != ScanHost {
+		t.Fatalf("host job: %+v", hj)
+	}
+}
+
+func TestTakePrefersHigherScoreWhenBudgetIsLimited(t *testing.T) {
+	p := policy()
+	p.Offer(ev(sensor.HostNew, "172.20.1.1", 0), at(0))                          // unrated, oldest
+	p.Offer(scored(sensor.HostNew, "172.20.1.2", 0, 0.2, "low"), at(1))          // rated low
+	p.Offer(scored(sensor.HostNew, "172.20.1.3", 0, 0.95, "interesting"), at(2)) // rated high, newest
+	got := p.Take(at(10), 2)
+	if len(got) != 2 || got[0].Target.IP.String() != "172.20.1.3" || got[1].Target.IP.String() != "172.20.1.2" {
+		t.Fatalf("order: %+v", got)
+	}
+	// Without scores the order stays by due time, as before.
+	q := policy()
+	q.Offer(ev(sensor.HostNew, "172.20.2.9", 0), at(0))
+	q.Offer(ev(sensor.HostNew, "172.20.2.1", 0), at(1))
+	if got := q.Take(at(10), 1); got[0].Target.IP.String() != "172.20.2.9" {
+		t.Fatalf("unrated order: %+v", got)
 	}
 }

@@ -29,6 +29,8 @@ type Finding struct {
 	Target   Target           `json:"target"`
 	Kind     Kind             `json:"kind"`
 	Verdict  string           `json:"verdict"`
+	Score    float64          `json:"score,omitempty"` // from the rating stage, if any
+	Reason   string           `json:"reason,omitempty"`
 	Events   []sensor.Event   `json:"events"`
 	Duration result.Duration  `json:"duration"`
 	Services []ServiceSummary `json:"services,omitempty"`
@@ -168,7 +170,7 @@ func (s *Service) run(ctx context.Context, j Job) {
 	s.logf("scan %s (%s, %d events)", j.Target, j.Kind, len(j.Events))
 	start := time.Now()
 	res, err := s.Scanner.Scan(sctx, j)
-	f := Finding{Time: time.Now(), Target: j.Target, Kind: j.Kind, Events: j.Events, Duration: result.Duration(time.Since(start))}
+	f := Finding{Time: time.Now(), Target: j.Target, Kind: j.Kind, Score: j.Score, Reason: j.Reason, Events: j.Events, Duration: result.Duration(time.Since(start))}
 	switch {
 	case err != nil:
 		// An interrupted or failed scan must not confirm anything: a

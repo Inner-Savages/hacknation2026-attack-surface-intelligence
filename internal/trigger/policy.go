@@ -53,6 +53,8 @@ type Job struct {
 	Kind   Kind           `json:"kind"`
 	Events []sensor.Event `json:"events"` // what caused it, oldest first
 	Due    time.Time      `json:"due"`
+	Score  float64        `json:"score,omitempty"`  // highest score among the events
+	Reason string         `json:"reason,omitempty"` // reason of that event
 	closed bool           // only service_closed so far: longer cooldown
 }
 
@@ -155,6 +157,7 @@ func (p *Policy) Offer(e sensor.Event, now time.Time) (bool, string) {
 	if t.Port != 0 {
 		if hj := p.pending[Target{IP: t.IP}]; hj != nil && (hj.Kind == ScanHost || kind == VerifyService) {
 			hj.Events = append(hj.Events, e)
+			hj.rate(e)
 			p.Counters["accepted"]++
 			return true, ""
 		}
@@ -169,6 +172,7 @@ func (p *Policy) Offer(e sensor.Event, now time.Time) (bool, string) {
 	}
 	job.Kind = kind // the latest event describes the current state
 	job.Events = append(job.Events, e)
+	job.rate(e)
 	if e.Type != sensor.ServiceClosed {
 		job.closed = false
 	}
@@ -188,6 +192,13 @@ func (p *Policy) Offer(e sensor.Event, now time.Time) (bool, string) {
 	job.Due = due
 	p.Counters["accepted"]++
 	return true, ""
+}
+
+// rate keeps the highest score seen among a job's events.
+func (j *Job) rate(e sensor.Event) {
+	if e.Score > j.Score {
+		j.Score, j.Reason = e.Score, e.Reason
+	}
 }
 
 func (p *Policy) drop(reason string) (bool, string) {
@@ -224,7 +235,12 @@ func (p *Policy) Take(now time.Time, free int) []Job {
 			due = append(due, j)
 		}
 	}
+	// With a limited budget the most interesting jobs go first; unrated
+	// jobs (score 0) keep their order by due time.
 	sort.Slice(due, func(i, k int) bool {
+		if due[i].Score != due[k].Score {
+			return due[i].Score > due[k].Score
+		}
 		if !due[i].Due.Equal(due[k].Due) {
 			return due[i].Due.Before(due[k].Due)
 		}

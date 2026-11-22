@@ -189,3 +189,19 @@ func TestInterruptedScanConfirmsNothing(t *testing.T) {
 		t.Fatalf("interrupted scan: %+v", f)
 	}
 }
+
+func TestFindingCarriesScoreAndReason(t *testing.T) {
+	f := &fakeScanner{open: map[string][]int{"172.20.0.8": {80}}}
+	s, dir := newService(t, f)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { s.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	e := ev(sensor.HostNew, "172.20.0.8", 0)
+	e.Score, e.Reason = 0.87, "cascade escalation"
+	post(t, s.Handler(), "tok", e)
+	got := readFindings(t, dir, 1)
+	if len(got) != 1 || got[0].Score != 0.87 || got[0].Reason != "cascade escalation" || got[0].Events[0].Score != 0.87 {
+		t.Fatalf("finding: %+v", got)
+	}
+}

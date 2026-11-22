@@ -73,6 +73,11 @@ type Event struct {
 	Banner *Banner    `json:"banner,omitempty"`
 	Source string     `json:"source"`
 	Sensor string     `json:"sensor,omitempty"` // which sensor saw it, when several report to one place
+	// Score and Reason are set by an optional stage between the sensor and
+	// the trigger (edgegate): 0..1, higher = more interesting. The sensor
+	// itself never sets them; absent means "not rated".
+	Score  float64 `json:"score,omitempty"`
+	Reason string  `json:"reason,omitempty"`
 }
 
 // Record is the persisted view of a host or service.
