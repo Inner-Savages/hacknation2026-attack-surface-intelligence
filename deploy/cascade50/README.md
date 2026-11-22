@@ -392,6 +392,38 @@ verdict is appended with the sensor's own timestamp and persisted in
 - `GET /api/map` returns the current per-host records plus the journal,
   with optional `from`/`to` (RFC3339) bounds on the timeline.
 
+### Inside/outside correlation (Shodan/Censys)
+
+The sensor sees the network from within; internet-wide scanners see what of
+it faces the world. Neither view alone answers "is anything exposed that
+should not be" — the **Ekspozycja** tab diffs the two, which is where
+shadow IT and accidental exposures live:
+
+- The engine pulls the outside view of the public IP (Shodan, or Censys v2;
+  the IP is auto-detected or pinned in settings) on a schedule (default
+  6 h) and on demand, and diffs it against the passive registry. The first
+  run establishes the external baseline; escalations start with the first
+  diff, so enabling the feature does not flood the backlog.
+- Findings: **unmatched_external** (the internet sees a service no
+  internal host reports — shadow-IT candidate, score 0.9),
+  **exposed_internal** (`service_new` inside that is simultaneously
+  visible from the internet — the sharpest alert, 0.95), **new_external**
+  (appeared on the public IP since the last check, 0.85) and
+  **gone_external** (good news, reported not escalated). Escalations are
+  ordinary cases, and new exposures also land on the map's topology
+  timeline.
+- **Favicon cross-match**: Shodan reports favicon hashes as mmh3 — the
+  exact format the internal scanner computes (`internal/probe/mmh3.go`) —
+  so for every external HTTP service the engine asks "where else is this
+  favicon visible" and flags the same app exposed on other public IPs.
+- Configuration in **Ustawienia → Ekspozycja** (admin): provider, API key
+  (write-only; `SHODAN_API_KEY` or `CENSYS_API_ID` + `CENSYS_API_SECRET`
+  work as env fallbacks), optional public-IP override, interval. Default
+  OFF — the feature queries an external API, so it is opt-in. `GET
+  /api/exposure` reports the view and findings; `POST /api/exposure/run`
+  triggers a check. Everything is fail-soft: no key or no network is a
+  feed note, never a failed run.
+
 
 On first run the engine seeds a starter list so it is useful out of the
 box. It ports the heuristics the edge bakes into its feature extractor
