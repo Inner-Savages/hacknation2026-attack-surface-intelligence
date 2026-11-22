@@ -79,6 +79,7 @@ type server struct {
 	settings *settings
 	rules    *ruleStore
 	gt       *groundTruth
+	exposure *exposureCheck
 }
 
 func (s *server) aiClient() *AIClient { return s.settings.aiClient() }
@@ -143,6 +144,8 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/groundtruth", s.needAuth(http.HandlerFunc(s.groundTruthStatus)))
 	mux.Handle("POST /api/groundtruth/run", s.needAdmin(http.HandlerFunc(s.groundTruthRun)))
 	mux.Handle("GET /api/map", s.needAuth(http.HandlerFunc(s.attackMap)))
+	mux.Handle("GET /api/exposure", s.needAuth(http.HandlerFunc(s.exposureStatus)))
+	mux.Handle("POST /api/exposure/run", s.needAdmin(http.HandlerFunc(s.exposureRun)))
 	mux.Handle("GET /api/users", s.needAdmin(http.HandlerFunc(s.users)))
 	mux.Handle("POST /api/users/{login}/admin", s.needAdmin(http.HandlerFunc(s.setUserAdmin)))
 	mux.Handle("DELETE /api/users/{login}", s.needAdmin(http.HandlerFunc(s.deleteUser)))
@@ -412,6 +415,31 @@ func (s *server) intakeLogs(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// exposureStatus reports the outside/inside diff: configuration, the last
+// external view and the current findings.
+func (s *server) exposureStatus(w http.ResponseWriter, r *http.Request) {
+	if s.exposure == nil {
+		writeJSON(w, 200, map[string]interface{}{"enabled": false, "configured": false})
+		return
+	}
+	writeJSON(w, 200, s.exposure.status())
+}
+
+// exposureRun triggers an on-demand outside-view pull (admin only).
+func (s *server) exposureRun(w http.ResponseWriter, r *http.Request) {
+	if s.exposure == nil {
+		http.Error(w, "exposure check unavailable", 503)
+		return
+	}
+	sess := s.auth.who(r)
+	who := "operator"
+	if sess != nil {
+		who = sess.Name
+	}
+	go s.exposure.run("ręcznie: " + who)
+	writeJSON(w, 200, map[string]string{"ok": "true"})
+}
+
 // attackMap serves the attack-surface map: the current per-host state from
 // the passive registry (the graph) plus the topology timeline (how the
 // network drifted). Query params from/to (RFC3339) bound the timeline.
@@ -550,6 +578,13 @@ func (s *server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"gt_silent_min":         gtSilent,
 		"gt_sample_size":        gtSample,
 		"cve_lookup":            cveLookupEffective(snap.CVELookup),
+		"exposure_enabled":      snap.ExposureEnabled != nil && *snap.ExposureEnabled,
+		"exposure_provider":     firstNonEmpty(snap.ExposureProvider, "shodan"),
+		"exposure_public_ip":    snap.ExposurePublicIP,
+		"exposure_interval_min": snap.ExposureIntervalMin,
+		"exposure_key_set": snap.ExposureAPIKey != "" ||
+			os.Getenv("SHODAN_API_KEY") != "" ||
+			(os.Getenv("CENSYS_API_ID") != "" && os.Getenv("CENSYS_API_SECRET") != ""),
 	})
 }
 
@@ -633,6 +668,25 @@ func (s *server) setConfig(w http.ResponseWriter, r *http.Request) {
 		} else {
 			changes = append(changes, "wyłączono wyszukiwanie CVE (NVD + EPSS)")
 		}
+	}
+	if p.ExposureEnabled != nil && (before.ExposureEnabled == nil || *before.ExposureEnabled != *p.ExposureEnabled) {
+		if *p.ExposureEnabled {
+			changes = append(changes, "włączono korelację z widokiem zewnętrznym (Shodan/Censys) — konsola odpytuje zewnętrzne API o publiczne IP")
+		} else {
+			changes = append(changes, "wyłączono korelację z widokiem zewnętrznym (Shodan/Censys)")
+		}
+	}
+	if p.ExposureProvider != nil && *p.ExposureProvider != before.ExposureProvider {
+		changes = append(changes, "zmieniono dostawcę widoku zewnętrznego na "+*p.ExposureProvider)
+	}
+	if p.ExposureAPIKey != nil && *p.ExposureAPIKey != "" && *p.ExposureAPIKey != before.ExposureAPIKey {
+		changes = append(changes, "zaktualizowano klucz API widoku zewnętrznego")
+	}
+	if p.ExposurePublicIP != nil && *p.ExposurePublicIP != before.ExposurePublicIP {
+		changes = append(changes, "zmieniono publiczne IP korelacji")
+	}
+	if p.ExposureIntervalMin != nil {
+		changes = append(changes, "zmieniono interwał kontroli ekspozycji")
 	}
 	if p.AIBaseURL != nil && *p.AIBaseURL != before.AIBaseURL {
 		changes = append(changes, "zmieniono adres API AI")

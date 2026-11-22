@@ -67,9 +67,17 @@ func main() {
 		log.Fatalf("open host registry: %v", err)
 	}
 	srv.gt = gt
+	// Inside/outside correlation: what Shodan/Censys see of the public IP,
+	// diffed against the passive registry (shadow IT, accidental exposure).
+	expo, err := newExposureCheck(*dataDir, store, feed, cfg, gt)
+	if err != nil {
+		log.Fatalf("open exposure state: %v", err)
+	}
+	srv.exposure = expo
 	go func() {
 		for range time.Tick(time.Minute) {
 			gt.tick()
+			expo.tick()
 		}
 	}()
 	go func() {

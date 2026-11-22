@@ -40,6 +40,17 @@ type settings struct {
 	// CVELookup enriches detected services with CVEs from NVD ranked by
 	// EPSS (KEV flagged). Default on; NVD_API_KEY raises the rate limit.
 	CVELookup *bool `json:"cve_lookup,omitempty"`
+
+	// Exposure correlates the inside view with what internet-wide scanners
+	// (Shodan/Censys) see of the public IP. Default OFF: it queries an
+	// external API, so it is opt-in. The key is write-only in API
+	// responses; env SHODAN_API_KEY / CENSYS_API_ID+CENSYS_API_SECRET
+	// provide the fallback.
+	ExposureEnabled     *bool  `json:"exposure_enabled,omitempty"`
+	ExposureProvider    string `json:"exposure_provider,omitempty"`     // shodan (default) | censys
+	ExposureAPIKey      string `json:"exposure_api_key,omitempty"`      // censys: "api-id:api-secret"
+	ExposurePublicIP    string `json:"exposure_public_ip,omitempty"`    // empty = autodetect egress IP
+	ExposureIntervalMin int    `json:"exposure_interval_min,omitempty"` // default 360 (6 h)
 }
 
 func openSettings(dir string) (*settings, error) {
@@ -85,6 +96,12 @@ type configPatch struct {
 	GTSilentMin   *int  `json:"gt_silent_min"`
 	GTSampleSize  *int  `json:"gt_sample_size"`
 	CVELookup     *bool `json:"cve_lookup"`
+
+	ExposureEnabled     *bool   `json:"exposure_enabled"`
+	ExposureProvider    *string `json:"exposure_provider"`
+	ExposureAPIKey      *string `json:"exposure_api_key"`
+	ExposurePublicIP    *string `json:"exposure_public_ip"`
+	ExposureIntervalMin *int    `json:"exposure_interval_min"`
 }
 
 // update applies the non-nil fields of the patch and persists the result.
@@ -124,6 +141,21 @@ func (s *settings) update(p configPatch) error {
 	if p.CVELookup != nil {
 		s.CVELookup = p.CVELookup
 	}
+	if p.ExposureEnabled != nil {
+		s.ExposureEnabled = p.ExposureEnabled
+	}
+	if p.ExposureProvider != nil {
+		s.ExposureProvider = *p.ExposureProvider
+	}
+	if p.ExposureAPIKey != nil {
+		s.ExposureAPIKey = *p.ExposureAPIKey
+	}
+	if p.ExposurePublicIP != nil {
+		s.ExposurePublicIP = *p.ExposurePublicIP
+	}
+	if p.ExposureIntervalMin != nil && *p.ExposureIntervalMin >= 0 {
+		s.ExposureIntervalMin = *p.ExposureIntervalMin
+	}
 	return s.saveLocked()
 }
 
@@ -135,7 +167,12 @@ func (s *settings) snapshot() settings {
 		AIBaseURL: s.AIBaseURL, AIModel: s.AIModel, AIAPIKey: s.AIAPIKey,
 		GTEnabled: s.GTEnabled, GTIntervalMin: s.GTIntervalMin,
 		GTSilentMin: s.GTSilentMin, GTSampleSize: s.GTSampleSize,
-		CVELookup: s.CVELookup,
+		CVELookup:           s.CVELookup,
+		ExposureEnabled:     s.ExposureEnabled,
+		ExposureProvider:    s.ExposureProvider,
+		ExposureAPIKey:      s.ExposureAPIKey,
+		ExposurePublicIP:    s.ExposurePublicIP,
+		ExposureIntervalMin: s.ExposureIntervalMin,
 	}
 }
 

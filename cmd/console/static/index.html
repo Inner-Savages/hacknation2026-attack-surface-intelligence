@@ -224,6 +224,7 @@ tbody tr:hover { background: var(--panel-2); }
   <nav class="tabs" style="padding:0">
     <button class="tab" data-nav="alerty" onclick="go('#/alerty')">Alerty</button>
     <button class="tab" data-nav="mapa" onclick="go('#/mapa')">Mapa</button>
+    <button class="tab" data-nav="ekspozycja" onclick="go('#/ekspozycja')">Ekspozycja</button>
     <button class="tab" data-nav="logi" onclick="go('#/logi')">Logi live</button>
     <button class="tab" data-nav="sensory" onclick="go('#/sensory')">Sensory</button>
     <button class="tab" data-nav="reguly" onclick="go('#/reguly')">Reguły</button>
@@ -872,6 +873,26 @@ async function viewSettings() {
         <p class="fineprint" style="margin-top:10px">${gt ? `Rejestr pasywny: ${gt.registry_hosts ?? 0} hostów · ${gt.running ? 'skan w toku…' : (gt.last_summary ? 'Ostatni ' + esc(gt.last_summary) : 'jeszcze nie skanowano')}` : 'Ground truth niedostępny'}</p>
       </div>
       <div class="panel">
+        <h4>EKSPozycja (SHODAN / CENSYS)</h4>
+        <div class="switch-row">
+          <div><b>Korelacja z widokiem zewnętrznym</b><div class="desc">Sensor widzi sieć od środka; Shodan/Censys widzą, co z niej wystawione jest na świat. Diff „wnętrze vs internet" wykrywa shadow IT i przypadkowe ekspozycje — nowa usługa widoczna z zewnątrz to alert najwyższej wagi. Domyślnie wyłączone: konsola odpytuje zewnętrzne API o publiczne IP.</div></div>
+          <button class="toggle ${cfg.exposure_enabled?'on':''}" onclick="saveConfig({exposure_enabled: ${!cfg.exposure_enabled}})"></button>
+        </div>
+        <div class="form-row"><label>DOSTAWCA</label>
+          <select id="expProvider" style="width:100%">
+            <option value="shodan" ${(cfg.exposure_provider||'shodan')==='shodan'?'selected':''}>Shodan (hashy favicon mmh3 — takie same jak skanera)</option>
+            <option value="censys" ${cfg.exposure_provider==='censys'?'selected':''}>Censys (widok hosta v2)</option>
+          </select></div>
+        <div class="form-row"><label>KLUCZ API ${cfg.exposure_key_set ? '(zapisany — wpisz nowy, aby podmienić)' : ''}</label>
+          <input id="expApiKey" type="password" placeholder="${cfg.exposure_key_set ? '••••••••' : 'klucz Shodan albo api-id:api-secret dla Censys'}" value="">
+        <div class="fineprint" style="margin-top:6px">Zapisywany lokalnie, nigdy nie wraca do przeglądarki. Zamiast niego działają też zmienne SHODAN_API_KEY lub CENSYS_API_ID + CENSYS_API_SECRET.</div></div>
+        <div class="form-row"><label>PUBLICZNE IP (puste = wykryj automatycznie)</label>
+          <input id="expPublicIP" placeholder="np. 203.0.113.10" value="${esc(cfg.exposure_public_ip || '')}"></div>
+        <div class="form-row"><label>INTERWAŁ KONTROLI (minuty)</label>
+          <input id="expInterval" type="number" min="15" value="${cfg.exposure_interval_min || 360}"></div>
+        <button class="btn primary" style="width:100%" onclick="saveExposureConfig()">Zapisz konfigurację ekspozycji</button>
+      </div>
+      <div class="panel">
         <h4>DOSTAWCA AI (API KOMPATYBILNE Z OPENAI)</h4>
         <div class="form-row"><label>ADRES API (puste = domyślne https://api.openai.com/v1 albo lokalny model)</label>
           <input id="cfgBaseUrl" placeholder="np. http://127.0.0.1:11434/v1" value="${esc(cfg.ai_base_url || '')}"></div>
@@ -935,6 +956,19 @@ async function saveConfig(patch) {
     render();
   } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
 }
+async function saveExposureConfig() {
+  const patch = {
+    exposure_provider: $('#expProvider').value,
+    exposure_public_ip: $('#expPublicIP').value.trim(),
+    exposure_interval_min: parseInt($('#expInterval').value, 10) || 0,
+  };
+  const key = $('#expApiKey').value.trim();
+  if (key) patch.exposure_api_key = key;
+  try {
+    await post('/api/config', patch);
+    render();
+  } catch (e) { alert('Nie udało się zapisać: ' + e.message); }
+}
 async function saveAiConfig() {
   const patch = {};
   const base = $('#cfgBaseUrl').value.trim();
@@ -965,6 +999,7 @@ const MAP_EV = {
   gt_quiet:       {label: 'skan: zweryfikowany cichy', dot: 'green'},
   gt_changed:     {label: 'skan: ZMIANA w ciszy',   dot: 'red'},
   gt_unreachable: {label: 'skan: nieosiągalny',     dot: 'gray'},
+  exposure_new:   {label: 'ekspozycja zewnętrzna',  dot: 'red'},
 };
 
 async function viewMap() {
@@ -1146,6 +1181,82 @@ function mapEvLine(e) {
 
 function mapSelect(ip) { mapState.selected = ip; drawMap(); }
 
+// --- exposure (inside/outside correlation) ---------------------------------
+const EXP_KIND = {
+  unmatched_external: {label: 'BEZ ODPOWIEDNIKA WEWNĄTRZ', cls: 'potwierdzony'},
+  exposed_internal:   {label: 'WEWNĘTRZNA WYSTAWIONA',     cls: 'potwierdzony'},
+  new_external:       {label: 'NOWA NA PUBLICZNYM IP',     cls: 'do_weryfikacji'},
+  favicon_spread:     {label: 'FAVICON NA INNYCH IP',      cls: 'do_weryfikacji'},
+  gone_external:      {label: 'ZNIKNĘŁA Z INTERNETU',      cls: 'zamkniety'},
+};
+
+async function viewExposure() {
+  const app = $('#app');
+  app.innerHTML = '<div class="loading-line"><div class="spinner"></div> Ładuję korelację z widokiem zewnętrznym…</div>';
+  let d;
+  try { d = await api('/api/exposure'); }
+  catch (e) { app.innerHTML = `<div class="empty"><h3>Nie udało się pobrać danych ekspozycji</h3><p>${esc(e.message)}</p></div>`; return; }
+
+  if (!d.configured) {
+    app.innerHTML = `<div class="empty"><div class="waves">⇄</div>
+      <h3>Korelacja z internetem nie jest skonfigurowana</h3>
+      <p>Sensor widzi sieć od środka; Shodan/Censys widzą, co z niej wystawione jest na świat. Dodaj klucz API w Ustawieniach, a diff „wnętrze vs internet" zacznie wykrywać shadow IT i przypadkowe ekspozycje.</p>
+      ${session.user?.admin ? '<button class="btn primary" onclick="go(\'#/ustawienia\')">Przejdź do ustawień</button>' : '<p class="fineprint">Skonfigurować może administrator.</p>'}</div>`;
+    return;
+  }
+
+  const view = d.view || null;
+  const findings = d.findings || [];
+  const byKind = k => findings.filter(f => f.kind === k);
+  const isAdmin = !!session.user?.admin;
+
+  app.innerHTML = `
+    <div class="cards">
+      <div class="card panel"><div class="label">PUBLICZNE IP</div><div class="value" style="font-size:20px;font-family:var(--mono)">${esc(view?.ip || '—')}</div><div class="sub">${esc(d.provider)}${view?.org ? ' · ' + esc(view.org) : ''}</div></div>
+      <div class="card panel"><div class="label">USŁUGI Z INTERNETU</div><div class="value">${view ? view.services.length : '—'}</div><div class="sub">${view?.last_update ? 'akt. ' + esc(view.last_update.slice(0, 10)) : ''}</div></div>
+      <div class="card panel"><div class="label">BEZ ODPOWIEDNIKA</div><div class="value" style="color:var(--danger)">${byKind('unmatched_external').length}</div><div class="sub">shadow IT / przypadkowa ekspozycja</div></div>
+      <div class="card panel"><div class="label">WEWN. WYSTAWIONE</div><div class="value" style="color:var(--warn)">${byKind('exposed_internal').length}</div><div class="sub">nowe wewnątrz + widoczne z świata</div></div>
+    </div>
+    <div class="feed-toolbar">
+      <span class="muted">${d.enabled ? `Włączone · co ${esc(d.interval || '—')}` : 'Wyłączone — tylko kontrole ręczne'}${d.running ? ' · <b>kontrola w toku…</b>' : ''}</span>
+      <span style="flex:1"></span>
+      ${isAdmin ? `<button class="btn" onclick="runExposure()">Uruchom kontrolę teraz</button>` : ''}
+      <button class="btn" onclick="viewExposure()">Odśwież</button>
+    </div>
+    ${d.last_summary ? `<p class="fineprint" style="margin-bottom:12px">Ostatnia kontrola: ${esc(d.last_summary)}</p>` : ''}
+    ${view?.vulns?.length ? `<div class="banner"><span>⚠</span><div class="grow">${esc(d.provider)} raportuje na tym adresie ${view.vulns.length} znanych CVE: ${esc(view.vulns.slice(0, 8).join(', '))}${view.vulns.length > 8 ? '…' : ''}</div></div>` : ''}
+    <div class="detail" style="grid-template-columns:1fr 1fr">
+      <div class="panel">
+        <h4>WIDOK ZEWNĘTRZNY (${esc(d.provider)})</h4>
+        ${view && view.services.length ? `<table><thead><tr><th>Usługa</th><th>Produkt</th><th>Odpowiednik wewnętrzny</th></tr></thead>
+        <tbody>${view.services.map(s => {
+          const f = findings.find(x => x.service.port === s.port && (x.kind === 'unmatched_external' || x.kind === 'exposed_internal'));
+          return `<tr style="cursor:default"><td class="mono">${s.port}/${esc(s.proto || 'tcp')}${s.favicon_mmh3 ? ` <span class="fineprint">favicon ${s.favicon_mmh3}</span>` : ''}</td>
+            <td>${esc((s.product || '') + ' ' + (s.version || '')) || '<span class="muted">—</span>'}</td>
+            <td>${f && f.kind === 'unmatched_external' ? '<span class="badge potwierdzony">BRAK — shadow IT?</span>'
+              : f && f.match_ip ? `<span class="badge nowe">${esc(f.match_ip)}</span>`
+              : '<span class="muted">—</span>'}</td></tr>`;
+        }).join('')}</tbody></table>` : '<p class="muted" style="padding:14px">Brak danych — uruchom kontrolę.</p>'}
+      </div>
+      <div class="panel">
+        <h4>WYNIKI DIFFU „WNĘTRZE vs INTERNET"</h4>
+        ${findings.length ? `<div class="feed" style="max-height:50vh">${findings.map(f => {
+          const k = EXP_KIND[f.kind] || {label: f.kind, cls: 'zamkniety'};
+          return `<div class="feed-line"><span class="feed-kind ${f.kind === 'gone_external' ? 'note' : f.kind === 'new_external' || f.kind === 'favicon_spread' ? 'status' : 'alert'}" style="width:auto">${esc(k.label)}</span>
+            <span class="feed-text"><b class="mono">${f.service.port}/${esc(f.service.proto || 'tcp')}</b> ${esc((f.service.product || '') + ' ' + (f.service.version || ''))}${f.match_ip ? ' ↔ ' + esc(f.match_ip) : ''}<br><span class="muted">${esc(f.detail)}</span> <span class="feed-time">${fmtDateTime(f.first_seen)}</span></span></div>`;
+        }).join('')}</div>` : '<p class="muted" style="padding:14px">Brak rozjazdu widoków — wnętrze i internet mówią to samo.</p>'}
+      </div>
+    </div>`;
+}
+
+async function runExposure() {
+  try {
+    await post('/api/exposure/run', {});
+    alert('Kontrola ekspozycji uruchomiona — wynik pojawi się za chwilę.');
+    setTimeout(viewExposure, 3000);
+  } catch (e) { alert('Nie udało się uruchomić: ' + e.message); }
+}
+
 // --- router ----------------------------------------------------------------
 async function render() {
   if (!session.user) return; // auth screen is up
@@ -1153,11 +1264,13 @@ async function render() {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active',
     h.startsWith('#/sensory') ? t.dataset.nav === 'sensory'
     : h.startsWith('#/mapa') ? t.dataset.nav === 'mapa'
+    : h.startsWith('#/ekspozycja') ? t.dataset.nav === 'ekspozycja'
     : h.startsWith('#/logi') ? t.dataset.nav === 'logi'
     : h.startsWith('#/reguly') ? t.dataset.nav === 'reguly'
     : h.startsWith('#/ustawienia') ? t.dataset.nav === 'ustawienia'
     : t.dataset.nav === 'alerty'));
   if (h.startsWith('#/mapa')) return viewMap();
+  if (h.startsWith('#/ekspozycja')) return viewExposure();
   if (h.startsWith('#/sensory')) return viewSensors();
   if (h.startsWith('#/logi')) return viewLogs();
   if (h.startsWith('#/reguly')) return viewRules();
@@ -1167,7 +1280,7 @@ async function render() {
 }
 
 setInterval(() => { $('#clock').textContent = 'akt. ' + new Date().toLocaleTimeString('pl-PL'); }, 1000);
-setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa')) render(); }, 10000);
+setInterval(async () => { if (!session.user) return; await refresh(); if (!location.hash.startsWith('#/alerta/') && !location.hash.startsWith('#/logi') && !location.hash.startsWith('#/ustawienia') && !location.hash.startsWith('#/reguly') && !location.hash.startsWith('#/mapa') && !location.hash.startsWith('#/ekspozycja')) render(); }, 10000);
 setInterval(() => { if (session.user) pollLogs(); }, 3000);
 
 (async () => {
