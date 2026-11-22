@@ -55,6 +55,7 @@ function rbacApply() {
 async function viewRoles() {
   const app = $('#app');
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.nav === 'role'));
+  const lbl = document.getElementById('navMenuLabel'); if (lbl) lbl.textContent = 'Role';
   if (!can('roles:manage')) { app.innerHTML = '<div class="panel" style="padding:24px;margin-top:16px"><p class="muted">Brak uprawnień do zarządzania rolami.</p></div>'; return; }
   const [r, u, au] = await Promise.all([api('/api/roles'), api('/api/rbac/users'), api('/api/audit?limit=50').catch(() => ({items: []}))]);
   rbac.roles = r.roles; rbac.catalog = r.permissions;
