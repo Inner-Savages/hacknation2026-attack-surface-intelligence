@@ -43,9 +43,10 @@ Powiedz wprost: flota 137 sensorów i większość spraw to dane syntetyczne try
 - Brak reguły „N skanów z rzędu” dla nieaktywności i analizy zależnej od pory dnia.
 - Pełna tabela zgodności z treścią zadania: `COMPLIANCE.md`.
 
-## Pułapki na demo
+## Pułapki na demo (próbny przebieg 2026-11-22: publiczny adres 200 w 0,16 s, `jury` czyta i dostaje 403 na zapisie, `admin` dodaje cel, importuje CSV z odrzuceniem błędnego wiersza, edycja przeżywa ponowny import, `scanner diff` i `export -dry-run` działają)
 
 - **Zasoby:** hosty z samym portem 22 (np. bramki `172.29.10.1`, `172.29.11.1`) mają klasę „Serwer Git” z pewnością 98%; to nietrafna klasyfikacja, nie pokazuj tej zakładki jako przykładu jakości, a jeśli ktoś zapyta, powiedz, że to heurystyka na portach i jest do poprawy.
+- **Skan usług TLS z labu jest wolny:** skan czterech hostów `172.29.10.50-53` na porcie 443 trwał ponad 3 minuty (nmap `-sV` wobec `openssl s_server`), a dwa kolejne przebiegi zmieniają hash favicony (każdy start generuje inną stronę, więc diff pokazuje szum). Na żywo skanuj lab AGH z `DEMO.md` (7 portów, ok. 48 s), nie hosty TLS.
 - **Mapa:** host `172.29.10.4` jest „nieosiągalny” (flapper); to zamierzony host niestabilny.
 - **Dostęp:** demo jest publiczne do 16:00 (Cloudflare Access wyłączony na czas oceny), potem trzeba przywrócić Access.
 
