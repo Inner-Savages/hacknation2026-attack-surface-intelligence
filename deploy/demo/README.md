@@ -112,6 +112,15 @@ of the lab, so it cannot sit on the isolated compose network. Honest consequence
   `POST /events` expects cascade edge-gate escalation envelopes (see
   `deploy/cascade50`), not raw sensor events. Both need the bearer token
   (`ASI_CENTRAL_TOKEN`, 401 without it).
+- `POST /findings` is where the trigger ships every targeted-scan result
+  (`-findings-url http://127.0.0.1:18081/findings`, same token, 401 without
+  it). The console correlates a finding with the open case for that host
+  (verdict + services + diff as an audited note) or opens a new case, so the
+  demo shows scan results instead of staying empty; the live feed labels them
+  `WERYFIKACJA`. The "scan" action on a case can ask the trigger for a
+  targeted scan when the console has `ASI_TRIGGER_URL`/`ASI_TRIGGER_TOKEN`
+  set (not wired in the demo compose: the console is on an isolated network
+  and the trigger listens on the host's loopback).
 
 ```bash
 cd /opt/silent-demo && docker compose --profile lab up -d lab-relay

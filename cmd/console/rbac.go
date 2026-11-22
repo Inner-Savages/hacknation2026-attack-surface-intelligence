@@ -315,7 +315,7 @@ var routePerms = map[string]string{
 // (which authenticates with its own bearer token).
 var publicRoutes = map[string]bool{
 	"POST /api/register": true, "POST /api/login": true, "POST /api/logout": true,
-	"GET /api/me": true, "POST /events": true, "POST /logs": true, "GET /health": true,
+	"GET /api/me": true, "POST /events": true, "POST /logs": true, "POST /findings": true, "GET /health": true,
 }
 
 type statusWriter struct {

@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,8 @@ func main() {
 		ignore       = flag.String("ignore", "", "more addresses whose events are ignored (comma separated)")
 		ignoreNet    = flag.String("ignore-net", os.Getenv("SOTW_EXCLUDE_NET"), "networks or addresses inside -allow that are never scanned, e.g. your own infrastructure (comma separated, default $SOTW_EXCLUDE_NET)")
 		topPorts     = flag.Int("top-ports", 100, "ports scanned for host events")
+		findingsURL  = flag.String("findings-url", "", "POST every finding here (e.g. the console's /findings) for evidence correlation")
+		findingsTok  = flag.String("findings-token", os.Getenv("ASI_CENTRAL_TOKEN"), "bearer token for -findings-url (default $ASI_CENTRAL_TOKEN, fallback -token)")
 		maxRate      = flag.Int("max-rate", 300, "nmap --max-rate")
 		intensity    = flag.Int("version-intensity", 5, "nmap -sV intensity 0-9")
 		sigFiles     = flag.String("signatures", "", "extra signature YAML files (comma separated)")
@@ -116,6 +119,22 @@ func main() {
 		Logf:      log.Printf,
 		OnFinding: func(f trigger.Finding) { _ = enc.Encode(f) },
 	}
+	if *findingsURL != "" {
+		// Ship every finding to the central console, which correlates the
+		// active evidence with the case the passive event opened. Async:
+		// OnFinding runs under the service lock, so the POST must not block
+		// scan bookkeeping. findings.jsonl stays the durable record.
+		shipToken := *findingsTok
+		if shipToken == "" {
+			shipToken = *token
+		}
+		ship := &findingShipper{url: *findingsURL, token: shipToken, client: &http.Client{Timeout: 10 * time.Second}, logf: log.Printf}
+		prev := svc.OnFinding
+		svc.OnFinding = func(f trigger.Finding) {
+			prev(f)
+			ship.ship(f)
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -162,4 +181,40 @@ func localAddrs() []netip.Addr {
 		}
 	}
 	return out
+}
+
+// findingShipper forwards findings to the central console for evidence
+// correlation. Best-effort: the durable record is findings.jsonl, so a
+// console outage only delays correlation and is logged, never fatal.
+type findingShipper struct {
+	url    string
+	token  string
+	client *http.Client
+	logf   func(format string, args ...any)
+}
+
+func (s *findingShipper) ship(f trigger.Finding) {
+	body, err := json.Marshal(f)
+	if err != nil {
+		return
+	}
+	go func() {
+		req, err := http.NewRequest("POST", s.url, bytes.NewReader(body))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if s.token != "" {
+			req.Header.Set("Authorization", "Bearer "+s.token)
+		}
+		resp, err := s.client.Do(req)
+		if err != nil {
+			s.logf("findings: console unreachable, kept in findings.jsonl: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			s.logf("findings: console answered HTTP %d, kept in findings.jsonl", resp.StatusCode)
+		}
+	}()
 }
