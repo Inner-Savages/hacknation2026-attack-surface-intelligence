@@ -107,6 +107,27 @@ Useful flags: `-i br-a,br-b` or `-i 'br-*'` (several interfaces, globs), `-net` 
 `auto` = subnets of the capture interfaces), `-silent-after`, `-learn`, `-state`
 (baseline file), `-r capture.pcap` (replay), `-f` (BPF filter, `""` = everything).
 
+Leaving out your own infrastructure (model containers, the console, the scanner host):
+
+```bash
+./bin/sensor -i 'br-*,!br-edge*,!docker0'                 # do not capture there at all
+./bin/sensor -i 'br-*' -exclude-net 172.18.0.0/16,10.0.0.5 # capture, but report nothing about these
+./bin/trigger -allow 172.16.0.0/12 -ignore-net 172.18.0.0/16  # never scan these, whoever reports them
+```
+
+- In `-i`, `!name` and `!glob` are applied after everything else, in any order, and may
+  match nothing. They beat an explicitly listed name.
+- `-exclude-net` produces no events about those addresses and adds nothing to the baseline.
+  Services that answer an excluded client are still reported: they are not the excluded
+  side. Entries already in a baseline from before are kept unchanged, never reported
+  silent, and count again when the exclusion is removed. The same holds for networks that
+  are no longer captured or not in `-net`.
+- Both `-exclude-net` and `-ignore-net` default to `$SOTW_EXCLUDE_NET`. An exclusion that
+  leaves nothing to watch or scan is an error at startup.
+- The sensor does not ask Docker which networks are yours (that would need access to the
+  Docker socket). Give your own compose network a fixed bridge name instead
+  (`driver_opts: {com.docker.network.bridge.name: br-edge0}`) and exclude it by glob.
+
 ### Scanner
 
 ```bash
@@ -131,7 +152,7 @@ tail -f trigger-state/findings.jsonl
 
 Set the same `SOTW_WEBHOOK_TOKEN` for both to require a bearer token. `GET /healthz`
 shows pending and running scans and why events were dropped. Policy flags: `-debounce`,
-`-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`.
+`-ignore-net`, `-quiet`, `-cooldown`, `-closed-cooldown`, `-max-per-minute`, `-top-ports`.
 
 ### Docker images
 

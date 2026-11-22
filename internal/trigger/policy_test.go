@@ -271,3 +271,26 @@ func TestTakePrefersHigherScoreWhenBudgetIsLimited(t *testing.T) {
 		t.Fatalf("unrated order: %+v", got)
 	}
 }
+
+func TestIgnoredNetworksAreNeverScanned(t *testing.T) {
+	p := policy()
+	p.Ignore = []netip.Prefix{netip.MustParsePrefix("172.20.8.0/24"), netip.MustParsePrefix("172.20.0.9/32")}
+	for _, ip := range []string{"172.20.8.4", "172.20.0.9"} {
+		for _, typ := range []sensor.EventType{sensor.HostNew, sensor.ServiceChanged, sensor.HostSilent} {
+			if ok, why := p.Offer(ev(typ, ip, 80), at(0)); ok || why != "ignored network" {
+				t.Errorf("%s %s: %v %q", typ, ip, ok, why)
+			}
+		}
+	}
+	if ok, why := p.Offer(ev(sensor.HostNew, "172.20.0.10", 0), at(0)); !ok {
+		t.Errorf("neighbour must still be scanned: %s", why)
+	}
+	if p.Counters["dropped: ignored network"] != 6 || p.Pending() != 1 {
+		t.Errorf("counters %v pending %d", p.Counters, p.Pending())
+	}
+	// An IPv4-mapped spelling must not slip past the ignore list.
+	p.Allow = append(p.Allow, netip.MustParsePrefix("::/0"))
+	if ok, why := p.Offer(ev(sensor.HostNew, "::ffff:172.20.8.4", 0), at(0)); ok || why != "ignored network" {
+		t.Errorf("mapped address: %v %q", ok, why)
+	}
+}

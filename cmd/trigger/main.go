@@ -25,6 +25,7 @@ import (
 	"github.com/Inner-Savages/silence-on-the-wire/internal/fingerprint"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/pipeline"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/scan"
+	"github.com/Inner-Savages/silence-on-the-wire/internal/sensor"
 	"github.com/Inner-Savages/silence-on-the-wire/internal/trigger"
 )
 
@@ -43,6 +44,7 @@ func main() {
 		perMinute    = flag.Int("max-per-minute", 10, "scans started per minute, at most")
 		ignoreSelf   = flag.Bool("ignore-self", true, "ignore events about this machine's own addresses (the scanner's traffic source)")
 		ignore       = flag.String("ignore", "", "more addresses whose events are ignored (comma separated)")
+		ignoreNet    = flag.String("ignore-net", os.Getenv("SOTW_EXCLUDE_NET"), "networks or addresses inside -allow that are never scanned, e.g. your own infrastructure (comma separated, default $SOTW_EXCLUDE_NET)")
 		topPorts     = flag.Int("top-ports", 100, "ports scanned for host events")
 		maxRate      = flag.Int("max-rate", 300, "nmap --max-rate")
 		intensity    = flag.Int("version-intensity", 5, "nmap -sV intensity 0-9")
@@ -73,6 +75,13 @@ func main() {
 			self = append(self, a)
 		}
 	}
+	ignored, err := sensor.ParsePrefixes(*ignoreNet)
+	if err != nil {
+		log.Fatalf("-ignore-net: %v", err)
+	}
+	if err := (sensor.Scope{Watch: prefixes, Exclude: ignored}).Validate(); err != nil {
+		log.Fatalf("nothing left to scan: -ignore-net: %v", err)
+	}
 
 	var extra []string
 	for _, f := range strings.Split(*sigFiles, ",") {
@@ -96,7 +105,7 @@ func main() {
 	enc := json.NewEncoder(os.Stdout)
 	svc := &trigger.Service{
 		Policy: &trigger.Policy{
-			Allow: prefixes, Self: self, Debounce: *debounce, Quiet: *quiet,
+			Allow: prefixes, Self: self, Ignore: ignored, Debounce: *debounce, Quiet: *quiet,
 			Cooldown: *cooldown, ClosedCooldown: *closedCD, MaxPerMinute: *perMinute,
 		},
 		Scanner:   &trigger.PipelineScanner{Base: base, TopPorts: *topPorts},
@@ -124,6 +133,9 @@ func main() {
 	auth := "no token"
 	if *token != "" {
 		auth = "token required"
+	}
+	if len(ignored) > 0 {
+		log.Printf("ignoring events about %s", sensor.FormatPrefixes(ignored))
 	}
 	log.Printf("listening on %s (%s), allow %s, ignoring %d own addresses", *listen, auth, *allow, len(self))
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

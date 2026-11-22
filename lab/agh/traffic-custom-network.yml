@@ -19,6 +19,11 @@
 #     sygnatury) tylko w sieciach Dockera (172.16.0.0/12); znaleziska w logach i
 #     w wolumenie trigger-data (findings.jsonl). Słucha tylko na 127.0.0.1:8099.
 #
+# Własna infrastruktura na tym samym hoście (np. kontenery modeli) nie powinna
+# wzbudzać skanów:
+#   SENSOR_IFACES='br-*,!br-edge*'   mosty, na których sensor ma nie słuchać,
+#   SOTW_EXCLUDE_NET=172.18.0.0/16   sieci pomijane przez sensor i trigger.
+#
 # Nakładka celowo nie nadaje sieciom AGH własnych nazw mostów: wtedy compose
 # uruchomiony bez nakładki (np. ich quickstart.sh) widzi inną definicję sieci,
 # próbuje ją odtworzyć i psuje działający stack.
@@ -63,7 +68,7 @@ services:
     cap_add: [NET_RAW]
     command:
       - -i
-      - br-*
+      - ${SENSOR_IFACES:-br-*}
       - -learn
       - ${SENSOR_LEARN:-30s}
       - -silent-after
@@ -74,6 +79,7 @@ services:
       - http://127.0.0.1:8099/events
     environment:
       SOTW_WEBHOOK_TOKEN: ${SOTW_WEBHOOK_TOKEN:-agh-lab-token}
+      SOTW_EXCLUDE_NET: ${SOTW_EXCLUDE_NET:-}
     volumes:
       - sensor-data:/data
     # Mosty powstają razem z sieciami stacku; sensor startuje po kontenerach,
@@ -94,6 +100,7 @@ services:
       - 127.0.0.1:8099
     environment:
       SOTW_WEBHOOK_TOKEN: ${SOTW_WEBHOOK_TOKEN:-agh-lab-token}
+      SOTW_EXCLUDE_NET: ${SOTW_EXCLUDE_NET:-}
     volumes:
       - trigger-data:/data
 
