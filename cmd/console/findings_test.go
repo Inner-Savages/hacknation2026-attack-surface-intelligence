@@ -180,3 +180,18 @@ func TestScanActionRequestsVerification(t *testing.T) {
 		t.Fatalf("bad verification request: %s", body)
 	}
 }
+
+// RBAC: POST /findings is machine intake (bearer token). A logged-in viewer's
+// session is not a credential for it, so it cannot write findings, and the
+// case actions that drive verification stay behind cases:update.
+func TestViewerCannotWriteFindings(t *testing.T) {
+	s, _, _ := testServer(t)
+	h := s.routes()
+	viewer := userWithRole(t, s, "vera", "viewer")
+	if w := call(t, h, "POST", "/findings", findingJSON("gone-confirmed"), viewer); w.Code != 401 {
+		t.Errorf("viewer session POST /findings = %d, want 401", w.Code)
+	}
+	if w := call(t, h, "POST", "/api/alerts/x/actions", `{"action":"scan"}`, viewer); w.Code != 403 {
+		t.Errorf("viewer scan action = %d, want 403", w.Code)
+	}
+}
