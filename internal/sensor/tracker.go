@@ -72,6 +72,12 @@ type Event struct {
 	New    string     `json:"new,omitempty"`
 	Banner *Banner    `json:"banner,omitempty"`
 	Source string     `json:"source"`
+	Sensor string     `json:"sensor,omitempty"` // which sensor saw it, when several report to one place
+	// Score and Reason are set by an optional stage between the sensor and
+	// the trigger (edgegate): 0..1, higher = more interesting. The sensor
+	// itself never sets them; absent means "not rated".
+	Score  float64 `json:"score,omitempty"`
+	Reason string  `json:"reason,omitempty"`
 }
 
 // Record is the persisted view of a host or service.
@@ -93,6 +99,11 @@ type Config struct {
 	// Start: when this run started; silence is measured from
 	// max(LastSeen, Start) so a loaded baseline gets a grace period.
 	Start time.Time
+	// Scope: what the sensor can report on. A loaded baseline may hold
+	// addresses outside it (a network excluded since): those records stay
+	// as they are but are never reported silent, because not watching an
+	// address says nothing about it.
+	Scope Scope
 }
 
 // Tracker holds the baseline and emits events on changes. Safe for
@@ -210,7 +221,7 @@ func (t *Tracker) Sweep(now time.Time) {
 
 	for _, ip := range sortedAddrs(t.hosts) {
 		h := t.hosts[ip]
-		if h.State != StateSilent && t.expired(h, now) {
+		if h.State != StateSilent && t.cfg.Scope.Contains(ip) && t.expired(h, now) {
 			h.State = StateSilent
 			t.report(now, Event{Type: HostSilent, IP: ip})
 		}
@@ -218,7 +229,7 @@ func (t *Tracker) Sweep(now time.Time) {
 	for _, k := range sortedKeys(t.services) {
 		s := t.services[k]
 		// A closed port stays closed until we see it open again.
-		if s.State == StateActive && t.expired(s, now) {
+		if s.State == StateActive && t.cfg.Scope.Contains(k.IP) && t.expired(s, now) {
 			s.State = StateSilent
 			t.report(now, Event{Type: ServiceSilent, IP: k.IP, Port: k.Port, Proto: k.Proto})
 		}

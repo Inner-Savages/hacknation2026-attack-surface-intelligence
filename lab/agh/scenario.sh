@@ -34,17 +34,20 @@ sleep "$LEARN_WAIT"
 step "1. zmiana bannera: flask-app przestaje podawać wersję nginxa"
 "${C[@]}" exec -T flask-app sh -c "echo 'server_tokens off;' > /etc/nginx/conf.d/tokens.conf && nginx -s reload" 2>/dev/null
 expect "service_changed dla flask-app:80 (server=nginx/X -> server=nginx), przy najbliższym GET z traffic"
+expect "trigger: skan flask-app:80 (scan-service), w znalezisku zmiana wersji nginx"
 sleep "$STEP_WAIT"
 
 step "2. usługa znika: docker compose stop flask-app (jak 'quickstart.sh change')"
 "${C[@]}" stop flask-app
 expect "po ok. ${SILENT_WAIT}s: host_silent i service_silent dla flask-app (oba jego adresy)."
 expect "Nie service_closed: zatrzymany kontener znika z sieci, więc nikt nie odpowiada RST."
+expect "trigger: verify-service i verify-host dla flask-app -> gone-confirmed / down-confirmed"
 sleep "$SILENT_WAIT"
 
 step "3. usługa wraca: docker compose start flask-app"
 "${C[@]}" start flask-app
 expect "host_back i service_back dla flask-app"
+expect "trigger: skan flask-app (scan-host), w znalezisku +1 usługa względem poprzedniego skanu"
 sleep "$STEP_WAIT"
 
 step "4. nowy host w sieci backend, którego nie było w baseline"
@@ -52,6 +55,7 @@ docker run -d --rm --name asi-intruder --network "$NET" nginx:alpine >/dev/null
 sleep 5
 docker run --rm --network "$NET" "$TRAFFIC_IMAGE" -once -targets "http://asi-intruder/" 2>&1 | tail -1
 expect "host_new (już przy starcie kontenera, z ARP), potem service_new dla asi-intruder:80"
+expect "trigger: jedno znalezisko scan-host dla intruza z rozpoznanym nginx (service_new dołącza do skanu hosta)"
 sleep "$STEP_WAIT"
 docker rm -f asi-intruder >/dev/null
 
@@ -60,3 +64,7 @@ expect "service_closed (RST: kontener żyje, port zamknięty) i service_back na 
 
 step "zdarzenia sensora od startu"
 "${C[@]}" logs --no-log-prefix sensor 2>/dev/null | grep '"type"' || true
+
+step "znaleziska triggera (skany wzbudzone przez sensor)"
+sleep "$STEP_WAIT" # ostatnie skany mogą jeszcze trwać
+"${C[@]}" logs --no-log-prefix trigger 2>/dev/null | grep -E 'trigger: .* (scan|finding) ' || true
